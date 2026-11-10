@@ -43,8 +43,8 @@ cp .env.example .env        # Windows: copy .env.example .env
 Then fill three lines in `.env`:
 
 ```ini
-EVILTOWN_LLM_BASE_URL=                           # any OpenAI-compatible endpoint, ends in /v1
-EVILTOWN_LLM_MODEL=                              # the model it serves
+EVILTOWN_LLM_BASE_URL=http://127.0.0.1:8080/v1   # any OpenAI-compatible endpoint, ends in /v1
+EVILTOWN_LLM_MODEL=local-model                   # the model it serves
 EVILTOWN_LLM_KEY=                                # blank for local servers
 ```
 
@@ -58,7 +58,6 @@ stays on the template — the town never waits for a model.
 
 **Never commit `.env`.** It's already in `.gitignore`, and `config.yaml` only holds `${EVILTOWN_LLM_*}`
 references, so no key ever lands in the repo.
-
 ### Changing the language
 
 Click the **⚙** button in the top right corner. There's a **Language** row in the panel.
@@ -146,6 +145,14 @@ truth for saves and the database, so switching languages never renames the same 
 - **A relationship graph view.** The data is there; it's only shown as a list inside one person's panel.
 
 Every number in this project, and every mistake made getting there, is written up in [DESIGN.md](DESIGN.md).
+## License
+
+Apache License 2.0 — full text in [LICENSE](LICENSE). Plain reading: use it, change it, ship it,
+sell it; keep the copyright notice and the license text with it. It also carries an explicit
+patent grant, which is why it was picked over MIT.
+
+Copyright 2026 xiaonaodai.
+
 
 ---
 
@@ -185,8 +192,8 @@ cp .env.example .env        # Windows：copy .env.example .env
 然后改 `.env` 里这三行：
 
 ```ini
-EVILTOWN_LLM_BASE_URL=                           # 任何 OpenAI 兼容地址，以 /v1 结尾
-EVILTOWN_LLM_MODEL=                              # 服务里加载的模型名
+EVILTOWN_LLM_BASE_URL=http://127.0.0.1:8080/v1   # 任何 OpenAI 兼容地址，以 /v1 结尾
+EVILTOWN_LLM_MODEL=local-model                   # 服务里加载的模型名
 EVILTOWN_LLM_KEY=                                # 本地起的留空
 ```
 
@@ -200,7 +207,6 @@ EVILTOWN_LLM_KEY=                                # 本地起的留空
 
 **`.env` 千万别提交。** `.gitignore` 里已经排除了；`config.yaml` 里只写 `${EVILTOWN_LLM_*}`
 引用，仓库里不会出现任何密钥。
-
 ### 怎么换语言
 
 **右上角那个 ⚙ 齿轮**，点开，面板里有一行「语言」。
@@ -249,6 +255,7 @@ EVILTOWN_LLM_KEY=                                # 本地起的留空
 
 **地图上的点位是什么颜色。** 主站右侧有一块「点位颜色」图例：马桶白、床浅蓝、桌子橙、工位紫、座位绿、柜台粉、门口浅灰、闲逛热点灰蓝 —— 8 种点位各一个色块，和编辑器里点位用的是**同一张色表**。所以在编辑器里摆在床或工位上的小点，回到游戏地图上认得出是同一个东西；切英文时图例名字跟着变。
 
+
 ### 现在到底在跑什么
 
 **需求和心情。** 饿、内急、累、想说话，每分钟都在涨。性格会掺进来：亲和低的人不爱凑人；神经质高的人压力积得快，发泄的方式也不一样。
@@ -289,3 +296,10 @@ python -X utf8 -m pytest -q
 - **关系图。** 数据是全的，但现在只能在单个居民的详情里看成一列文字。
 
 每个数字是怎么定的、中间踩过哪些坑，都写在 [DESIGN.md](DESIGN.md) 里。
+## 许可
+
+Apache License 2.0，全文见 [LICENSE](LICENSE)。直白版：随便用、随便改、随便发布、随便卖，
+保留版权声明和许可文本就行。它比 MIT 多一条**显式的专利授权**，当初就是为这个选的它。
+
+版权署名 Copyright 2026 xiaonaodai。
+
