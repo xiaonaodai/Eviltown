@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EvilTown · 建筑点位编辑器</title>
+<style>
+  /* 独立工具页，配色刻意与主站区分（深灰蓝），不影响 web/style.css */
+  :root {
+    --bg: #14181d; --panel: #1c2229; --line: #2c3540;
+    --text: #d8e0e8; --dim: #8b98a6; --accent: #4fa3e0;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text); font: 13px/1.5 "Segoe UI", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+    background: var(--panel); border-bottom: 1px solid var(--line); flex: none;
+  }
+  header h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  header .hint { color: var(--dim); font-size: 12px; }
+  header .spacer { flex: 1; }
+  header a { color: var(--accent); text-decoration: none; font-size: 12px; }
+
+  .wrap { flex: 1; display: flex; min-height: 0; }
+
+  aside {
+    width: 286px; flex: none; overflow-y: auto; background: var(--panel);
+    border-right: 1px solid var(--line); padding: 10px 12px 40px;
+  }
+  aside h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--dim); margin: 16px 0 6px; font-weight: 600;
+  }
+  aside h2:first-child { margin-top: 0; }
+
+  select, input[type="number"] {
+    background: #11161b; color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 7px; font: inherit; width: 100%;
+  }
+  .row2 { display: flex; gap: 8px; }
+  .row2 > * { flex: 1; min-width: 0; }
+
+  /* 图片缩略图网格 */
+  #thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  #thumbs .thumb {
+    position: relative; padding-top: 100%; border: 2px solid transparent;
+    border-radius: 5px; overflow: hidden; cursor: pointer; background: #11161b;
+  }
+  #thumbs .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #thumbs .thumb.on { border-color: var(--accent); }
+  #thumbs .thumb span {
+    position: absolute; left: 0; right: 0; bottom: 0; font-size: 10px;
+    background: rgba(0,0,0,.68); text-align: center; padding: 1px 0; color: #cfd8e2;
+  }
+
+  /* 点位类型按钮 */
+  #ptypes { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  .ptype {
+    display: flex; align-items: center; gap: 6px; padding: 5px 7px;
+    background: #11161b; border: 1px solid var(--line); border-radius: 4px;
+    cursor: pointer; font-size: 12px; user-select: none;
+  }
+  .ptype.on { border-color: var(--accent); background: #17222c; }
+  .ptype i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .ptype kbd {
+    margin-left: auto; font: 10px/1 monospace; color: var(--dim);
+    border: 1px solid var(--line); border-radius: 3px; padding: 1px 3px;
+  }
+
+  /* 点位列表 */
+  #plist { display: flex; flex-direction: column; gap: 3px; }
+  #plist .pitem {
+    display: flex; align-items: center; gap: 6px; padding: 4px 6px;
+    background: #11161b; border: 1px solid transparent; border-radius: 4px;
+    cursor: pointer; font-size: 12px;
+  }
+  #plist .pitem.on { border-color: var(--accent); }
+  #plist .pitem i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  #plist .pitem .co { margin-left: auto; color: var(--dim); font: 11px/1 monospace; }
+  #plist .pitem .del { color: #e06c6c; cursor: pointer; padding: 0 2px; }
+  #plist .empty { color: var(--dim); font-size: 12px; padding: 4px 0; }
+
+  button {
+    background: #232c36; color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 6px 10px; font: inherit; cursor: pointer;
+  }
+  button:hover { background: #2b3540; }
+  button.primary { background: #25668f; border-color: #2f7fb0; }
+  button.primary:hover { background: #2d78a5; }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+
+  /* 画布区 */
+  #stage {
+    flex: 1; position: relative; min-width: 0;
+    background:
+      linear-gradient(45deg, #191f26 25%, transparent 25%, transparent 75%, #191f26 75%),
+      linear-gradient(45deg, #191f26 25%, #161b21 25%, #161b21 75%, #191f26 75%);
+    background-size: 20px 20px; background-position: 0 0, 10px 10px;
+  }
+  #cv { display: block; cursor: crosshair; }
+
+  #status {
+    position: absolute; left: 10px; bottom: 10px; padding: 4px 9px;
+    background: rgba(0,0,0,.68); border-radius: 4px; font: 11px/1.4 monospace;
+    color: #b9c6d2; pointer-events: none;
+  }
+  #toast {
+    position: fixed; left: 50%; top: 54px; transform: translateX(-50%);
+    background: #25668f; color: #fff; padding: 7px 16px; border-radius: 5px;
+    font-size: 12px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 9;
+  }
+  #toast.on { opacity: 1; }
+  .thumb.out span { color: #7fd0a0; }
+  .check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1 data-e="ed.title">建筑点位编辑器</h1>
+  <span class="hint" data-e="ed.subtitle">选业态 → 选图片 → 点类型 → 在图上点</span>
+  <span class="spacer"></span>
+  <select id="lang" title="界面语言 / Language"
+          style="background:#1c2229;color:#d8e0e8;border:1px solid #2c3540;border-radius:4px;padding:3px 6px;font:inherit;font-size:12px;cursor:pointer">
+    <option value="zh">中文</option>
+    <option value="en">English</option>
+  </select>
+  <a href="/" target="_blank" data-e="ed.back">回到小镇 ↗</a>
+</header>
+
+<div class="wrap">
+  <aside>
+    <h2 data-e="ed.kind">业态（建筑类型）</h2>
+    <select id="kind"></select>
+
+    <h2 data-e="ed.grid">参考格数（建筑的 w × h）</h2>
+    <div class="row2">
+      <input id="gw" type="number" min="2" max="24" step="1" value="8"
+             title="宽（格）" data-et="ed.gridW" />
+      <input id="gh" type="number" min="2" max="24" step="1" value="6"
+             title="高（格）" data-et="ed.gridH" />
+    </div>
+    <div class="check" style="margin-top:6px">
+      <input id="snap" type="checkbox" />
+      <label for="snap" data-e="ed.snap">吸附到格子中心（关 = 可放格内任意位置）</label>
+    </div>
+
+    <h2 data-e="ed.images">图片（同类多张可换）</h2>
+    <div id="thumbs"></div>
+
+    <h2 data-e="ed.ptypes">点位类型</h2>
+    <div id="ptypes"></div>
+
+    <h2><span data-e="ed.setPoints">已设点位</span> <span id="pcount" style="color:var(--dim)"></span></h2>
+    <div id="plist"></div>
+
+    <h2 data-e="ed.result">结果</h2>
+    <div class="btns">
+      <button class="primary" id="btn-apply" data-e="ed.apply">应用</button>
+      <button id="btn-export" data-e="ed.export">导出 points.json</button>
+      <button id="btn-import" data-e="ed.import">导入…</button>
+      <button id="btn-clear" data-e="ed.clear">清空本类</button>
+    </div>
+    <div class="btns">
+      <button id="btn-copy" data-e="ed.copy">复制到剪贴板</button>
+      <button id="btn-cutout" data-e="ed.cutoutAuto">自动去背景</button>
+    </div>
+    <div class="btns">
+      <button id="btn-paint" data-e="ed.paint">涂抹背景</button>
+      <button id="btn-paint-undo" data-e="ed.paintUndo">撤销一笔</button>
+      <button id="btn-paint-clear" data-e="ed.paintClear">清空涂抹</button>
+      <button id="btn-cutout-manual" data-e="ed.cutoutManual">按涂抹抠图</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:11px;color:#8b98a6">
+      <span data-e="ed.brush">笔刷</span>
+      <input id="brush" type="range" min="4" max="60" value="12" style="flex:1;min-width:60px" />
+      <span data-e="ed.tol">容差</span>
+      <input id="ptol" type="range" min="8" max="90" value="32" style="width:64px" />
+    </div>
+    <label style="display:flex;gap:6px;align-items:center;margin-top:6px;font-size:11px;color:#8b98a6;cursor:pointer">
+      <input id="paint-grow" type="checkbox" checked />
+      <span data-e="ed.grow">按颜色向外生长（取消勾选＝只删笔刷涂过的地方，绝不蔓延）</span>
+    </label>
+    <input id="file" type="file" accept=".json" hidden />
+    <p class="hint" data-eh="ed.hint"
+       style="color:var(--dim);font-size:11px;margin-top:12px;line-height:1.6">提示…</p>
+  </aside>
+
+  <main id="stage">
+    <canvas id="cv"></canvas>
+    <div id="status">—</div>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ============================================================
+ * EvilTown 建筑点位编辑器（独立工具页，不参与仿真主循环）
+ *
+ * 目的：解决「小人到底在哪休息 / 在哪如厕」不受控的问题。
+ * 做法：在建筑贴图上点出语义点位（马桶、床、桌子、工位…），
+ *       存成归一化坐标（fx, fy ∈ [0,1]），由 buildings.py 读入后
+ *       换算成建筑内的具体格子。
+ *
+ * 为什么用归一化而不是绝对格子：建筑尺寸是随机生成的（宽 5~12、
+ * 高 4~9 格），同一类建筑大小不一；归一化后一套点位适配所有尺寸。
+ * ============================================================ */
+
+const BUILDINGS_BASE = 'assets/buildings/';   // 相对本页（/static/ 下）
+
+/* ---------- 界面语言（与主站共用 localStorage 的 key） ----------
+ * 主站的语言选择存在 localStorage('eviltown.lang')，这里读同一个 key：
+ * 你在主站右上角选了什么，打开编辑器就是什么语言。
+ * 第一次进来（没存过）跟主站一样默认英文。
+ * 字典值写成 [中文, English]；英文留空则回落中文。
+ */
+const LANG_KEY = 'eviltown.lang';
+const I18N = {
+  'ed.title':    ['EvilTown · 建筑点位编辑器', 'EvilTown · Furniture point editor'],
+  'ed.subtitle': ['选业态 → 选图片 → 点类型 → 在图上点',
+                  'Pick a kind → pick an image → pick a type → click on the image'],
+  'ed.back':     ['回到小镇 ↗', 'Back to town ↗'],
+  'ed.kind':     ['业态（建筑类型）', 'Kind (building type)'],
+  'ed.grid':     ['参考格数（建筑的 w × h）', 'Reference grid (building w × h)'],
+  'ed.gridW':    ['宽（格）', 'Width (tiles)'],
+  'ed.gridH':    ['高（格）', 'Height (tiles)'],
+  'ed.snap':     ['吸附到格子中心（关 = 可放格内任意位置）',
+                  'Snap to tile centre (off = anywhere inside the tile)'],
+  'ed.images':   ['图片（同类多张可换）', 'Images (several per kind)'],
+  'ed.ptypes':   ['点位类型', 'Point types'],
+  'ed.setPoints':['已设点位', 'Points placed'],
+  'ed.result':   ['结果', 'Actions'],
+  'ed.apply':    ['应用', 'Apply'],
+  'ed.export':   ['导出 points.json', 'Export points.json'],
+  'ed.import':   ['导入…', 'Import…'],
+  'ed.clear':    ['清空本类', 'Clear this image'],
+  'ed.copy':     ['复制到剪贴板', 'Copy to clipboard'],
+  'ed.cutoutAuto': ['自动去背景', 'Auto cutout'],
+  'ed.paint':    ['涂抹背景', 'Paint background'],
+  'ed.paintOn':  ['涂抹中…（点此退出）', 'Painting… (click to exit)'],
+  'ed.paintUndo':['撤销一笔', 'Undo stroke'],
+  'ed.paintClear': ['清空涂抹', 'Clear painting'],
+  'ed.cutoutManual': ['按涂抹抠图', 'Cut by painting'],
+  'ed.brush':    ['笔刷', 'Brush'],
+  'ed.tol':      ['容差', 'Tolerance'],
+  'ed.grow':     ['按颜色向外生长（取消勾选＝只删笔刷涂过的地方，绝不蔓延）',
+                  'Grow by colour (untick = delete only what you painted, never spreads)'],
+
+  // 左侧提示段（含 HTML 标签，用 innerHTML 写入）
+  'ed.hint': [
+    '提示：点位坐标存的是<b>相对比例</b>（0~1），同一类建筑不管多大都能共用一套点位。<br />'
+    + '拖动已有点可移动；<b>默认不吸附，点位可落在格子内任意位置</b>（勾上「吸附」才对齐格心）。<br />'
+    + '选中点位后用 <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> 微调（<kbd>Shift</kbd> 粗调），右键删除。<br />'
+    + '数字键 1~8 切类型，Ctrl+S 导出。',
+    'Note: points are stored as <b>relative fractions</b> (0–1), so one set fits any building size.<br />'
+    + 'Drag a point to move it; <b>no snapping by default — points may sit anywhere inside a tile</b> '
+    + '(tick "Snap" to align to tile centres).<br />'
+    + 'With a point selected, nudge it with <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> '
+    + '(<kbd>Shift</kbd> for bigger steps); right-click deletes.<br />'
+    + 'Keys 1–8 switch type, Ctrl+S exports.',
+  ],
+
+  // 动态文案
+  'ed.noImages': ['这个业态还没有图片', 'No images for this kind yet'],
+  'ed.imageCount': ['（{n} 张）', ' ({n} images)'],
+  'ed.pointsCount': ['（{n}）', ' ({n})'],
+  'ed.cut':      ['已抠', 'cut out'],
+  'ed.orig':     ['原图', 'original'],
+  'ed.imgFail':  ['图片加载失败：', 'Failed to load image: '],
+  'ed.pickImage':['（选择左侧图片）', '(pick an image on the left)'],
+  'ed.selected': ['选中 #', 'selected #'],
+  'ed.toTile':   ['→ 格(', '→ tile ('],
+  'ed.gridWord': ['格', 'grid'],
+  'ed.pointsWord': ['点位', 'points'],
+  'ed.pointsUnit': ['个', ''],
+  'ed.paintMode': ['涂抹模式（{grow}）：涂红处会被抠掉，{n} 点 · Ctrl+Z 撤销一笔',
+                   'paint mode ({grow}): red areas get cut, {n} marks · Ctrl+Z undoes a stroke'],
+  'ed.growOn':   ['按颜色生长', 'grow by colour'],
+  'ed.growOff':  ['只涂这里', 'only what I paint'],
+  'ed.hoverHint': ['点击落点 / 拖动移动 / 右键删除',
+                   'click to drop / drag to move / right-click to delete'],
+  'ed.empty':    ['还没有点位。选好类型后在图上点击即可。',
+                  'No points yet. Pick a type and click on the image.'],
+  'ed.del':      ['删除', 'Delete'],
+  'ed.exported': ['已导出 points.json（{n} 个业态）', 'Exported points.json ({n} kinds)'],
+  'ed.applied':  ['已应用（{n} 个业态）— 仿真已热更新，无需重启',
+                  'Applied ({n} kinds) — the sim is live-updated, no restart needed'],
+  'ed.saveFail': ['保存失败：', 'Save failed: '],
+  'ed.imported': ['已导入 {n} 个业态', 'Imported {n} kinds'],
+  'ed.importFail': ['导入失败：', 'Import failed: '],
+  'ed.confirmClear': ['清空当前这张图（{rel}）的全部点位？同类的其他图片不受影响。',
+                      'Clear every point on this image ({rel})? '
+                      + 'Other images of the same kind are untouched.'],
+  'ed.copied':   ['已复制 JSON 到剪贴板', 'JSON copied to clipboard'],
+  'ed.copyFail': ['复制失败：', 'Copy failed: '],
+  'ed.undoOne':  ['已撤销一笔', 'Stroke undone'],
+  'ed.undoNone': ['没有可撤销的涂抹', 'Nothing to undo'],
+  'ed.paintCleared': ['已清空涂抹', 'Painting cleared'],
+  'ed.needImage': ['先选一张图', 'Pick an image first'],
+  'ed.needStrokes': ['先在图上涂一下要去掉的背景', 'Paint over the background first'],
+  'ed.cuttingManual': ['按涂抹抠图中…', 'Cutting by your strokes…'],
+  'ed.cuttingAuto': ['正在自动抠图…（图大的话要几秒）', 'Auto-cutting… (a few seconds for big images)'],
+  'ed.cutDone':  ['抠图完成（透明 {p}）：{f}', 'Cutout done ({p} transparent): {f}'],
+  'ed.cutFail':  ['抠图失败：', 'Cutout failed: '],
+  'ed.manifestFail': ['读不到 manifest.json（{msg}）：请先运行 .link-agent/rename_assets.py',
+                      'Cannot read manifest.json ({msg}): run .link-agent/rename_assets.py first'],
+};
+
+let LANG = (() => {
+  try { return localStorage.getItem(LANG_KEY) === 'zh' ? 'zh' : 'en'; } catch (_) { return 'en'; }
+})();
+
+/** 取当前语言的文案；漏配直接露 key，一眼能发现。 */
+function E(key) {
+  const v = I18N[key];
+  if (!v) return key;
+  // 注意用 != null 而不是 ||：英文故意留空串的（如点位单位「个」→ ''）不能被回落
+  return LANG === 'en' ? (v[1] != null ? v[1] : v[0]) : v[0];
+}
+
+/** 带占位符：ET('ed.applied', {n: 3}) */
+function ET(key, vars) {
+  let s = E(key);
+  if (vars) for (const k in vars) s = s.split('{' + k + '}').join(vars[k]);
+  return s;
+}
+
+/** 涂抹按钮的两种文案（onclick 与切语言都要用，抽出来一处维护）。 */
+function updatePaintBtn() {
+  const b = document.getElementById('btn-paint');
+  if (b) b.textContent = S.paint ? E('ed.paintOn') : E('ed.paint');
+}
+
+/** 切语言：写 localStorage → 刷静态文案 → 重绘动态内容。 */
+function applyLang(code) {
+  LANG = code === 'zh' ? 'zh' : 'en';
+  try { localStorage.setItem(LANG_KEY, LANG); } catch (_) { /* 隐私模式下忽略 */ }
+  document.documentElement.lang = LANG === 'en' ? 'en' : 'zh-CN';
+  document.title = E('ed.title');
+
+  for (const n of document.querySelectorAll('[data-e]')) {
+    n.textContent = E(n.getAttribute('data-e'));
+  }
+  for (const n of document.querySelectorAll('[data-et]')) {
+    n.title = E(n.getAttribute('data-et'));
+  }
+  for (const n of document.querySelectorAll('[data-eh]')) {
+    n.innerHTML = E(n.getAttribute('data-eh'));   // 提示段含 <b>/<kbd>
+  }
+  const sel = document.getElementById('lang');
+  if (sel) sel.value = LANG;
+
+  // 动态内容：图片还没加载完时这些函数跑不了，所以先判 manifest
+  if (manifest) {
+    buildKindSelect();
+    document.getElementById('kind').value = S.kind;
+    buildTypeButtons();
+    renderThumbs();
+    renderPointList();
+    draw();
+  }
+  updatePaintBtn();
+}
+
+
+// 点位类型：id 与后端建筑家具字段同名，改这里要同步 buildings.py
+const PTYPES = [
+  { id: 'toilet',  name: '马桶 / 厕所', en: 'Toilet',   color: '#ffffff', key: '1' },
+  { id: 'bed',     name: '床 / 睡觉',   en: 'Bed',      color: '#7fd1ff', key: '2' },
+  { id: 'table',   name: '桌子 / 吃饭', en: 'Table',    color: '#ff9f5a', key: '3' },
+  { id: 'desk',    name: '工位 / 办公', en: 'Desk',     color: '#9d7bff', key: '4' },
+  { id: 'seat',    name: '座位 / 休息', en: 'Seat',     color: '#66e0a3', key: '5' },
+  { id: 'counter', name: '柜台 / 收银', en: 'Counter',  color: '#ff6b8a', key: '6' },
+  { id: 'door',    name: '入口 / 门',   en: 'Door',     color: '#e8e8e8', key: '7' },
+  { id: 'idle',    name: '闲逛热点',    en: 'Idle spot', color: '#7a8c99', key: '8' },
+];
+const PT_BY_ID = Object.fromEntries(PTYPES.map((p) => [p.id, p]));
+
+/** 点位类型名按界面语言取（英文缺省回落中文） */
+function ptypeName(p) { return LANG === 'en' ? (p.en || p.name) : p.name; }
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const stage = document.getElementById('stage');
+const statusEl = document.getElementById('status');
+
+let DPR = window.devicePixelRatio || 1;
+let manifest = null;
+
+// 全局编辑状态。data 里按业态存已完成的结果，切换业态时来回搬运。
+const S = {
+  kind: 'home',
+  imagePath: null,     // 形如 "home/home_01.jpg"
+  img: null,           // HTMLImageElement
+  grid: { w: 8, h: 6 },
+  points: [],          // [{type, fx, fy}]
+  draftType: 'toilet', // 当前要画的点位类型
+  selected: -1,        // 选中点位下标
+  snap: false,
+  dragging: false,
+  data: {},            // kind -> {image, grid, points}
+  paint: false,        // 涂抹模式：画布上拖动 = 标出背景（不落点位）
+  painting: false,
+  brush: 12,           // 笔刷半径（CSS 像素）
+  ptol: 32,            // 手动抠图容差
+  grow: true,          // true=按颜色向外生长；false=只删笔刷涂过的地方
+  gid: 0,              // 笔画组号：一次按下→抬起算一笔，撤销按笔回退
+  strokes: [],         // [{fx, fy, r, g}] 归一化涂抹点，r 相对图片宽度
+};
+
+/* ---------- 小工具 ---------- */
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('on'), 1600);
+}
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+/* ---------- 初始化 ---------- */
+async function boot() {
+  try {
+    const r = await fetch(BUILDINGS_BASE + 'manifest.json', { cache: 'no-cache' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    manifest = await r.json();
+  } catch (e) {
+    document.getElementById('status').textContent =
+      ET('ed.manifestFail', { msg: e.message });
+    return;
+  }
+
+  // 加载已有点位：优先后端（项目根的 points.json），再退回静态目录
+  for (const url of ['/api/furniture-points', BUILDINGS_BASE + 'points.json']) {
+    try {
+      const r = await fetch(url, { cache: 'no-cache' });
+      if (!r.ok) continue;
+      const js = await r.json();
+      S.data = migrateKinds(js.kinds || {});
+      break;
+    } catch (_) { /* 换下一个来源 */ }
+  }
+
+  buildKindSelect();
+  buildTypeButtons();
+  bindEvents();
+  selectKind(Object.keys(manifest.kinds)[0]);
+  resize();
+}
+
+function buildKindSelect() {
+  const sel = document.getElementById('kind');
+  sel.innerHTML = '';
+  for (const kind of Object.keys(manifest.kinds)) {
+    const o = document.createElement('option');
+    o.value = kind;
+    o.textContent = kind + ET('ed.imageCount', { n: manifest.kinds[kind].length });
+    sel.appendChild(o);
+  }
+  sel.value = S.kind;                       // 切语言重建后不能丢当前业态
+  sel.onchange = () => selectKind(sel.value);
+}
+
+function buildTypeButtons() {
+  const box = document.getElementById('ptypes');
+  box.innerHTML = '';
+  for (const p of PTYPES) {
+    const d = document.createElement('div');
+    d.className = 'ptype' + (p.id === S.draftType ? ' on' : '');
+    d.dataset.id = p.id;
+    d.innerHTML = '<i style="background:' + p.color + '"></i>' + ptypeName(p) +
+                  '<kbd>' + p.key + '</kbd>';
+    d.onclick = () => setDraftType(p.id);
+    box.appendChild(d);
+  }
+}
+
+function setDraftType(id) {
+  S.draftType = id;
+  for (const el of document.querySelectorAll('.ptype')) {
+    el.classList.toggle('on', el.dataset.id === id);
+  }
+}
+
+/* ---------- 业态 / 图片切换（点位按「类别 → 贴图」两级存储） ---------- */
+
+/** 把 points.json 的 kinds（v1 或 v2）归一化成 v2：{业态: {贴图: {grid, points}}}。 */
+function migrateKinds(kinds) {
+  const out = {};
+  for (const [kind, spec] of Object.entries(kinds || {})) {
+    if (!spec || typeof spec !== 'object') continue;
+    if (spec.images && typeof spec.images === 'object') {
+      out[kind] = {};
+      for (const [rel, one] of Object.entries(spec.images)) {
+        if (one && Array.isArray(one.points)) {
+          out[kind][rel] = { grid: one.grid || { w: 8, h: 6 }, points: one.points };
+        }
+      }
+      continue;
+    }
+    // v1：整类只有一份点位，落到它的 image 上；image 为空则用该类第一张图兜底
+    if (Array.isArray(spec.points) && spec.points.length) {
+      const imgs = (manifest.kinds || {})[kind] || [];
+      const rel = spec.image || imgs[0] || '__default__';
+      out[kind] = { [rel]: { grid: spec.grid || { w: 8, h: 6 }, points: spec.points } };
+    }
+  }
+  return out;
+}
+
+/** 只把「当前这张图」的点位写回内存，不动同类的其他图片。 */
+function stashCurrent() {
+  if (!S.kind || !S.imagePath) return;
+  const bucket = S.data[S.kind] || (S.data[S.kind] = {});
+  bucket[S.imagePath] = {
+    grid: { w: S.grid.w, h: S.grid.h },
+    points: S.points.map((p) => ({ type: p.type, fx: +p.fx.toFixed(4), fy: +p.fy.toFixed(4) })),
+  };
+}
+
+function selectKind(kind) {
+  stashCurrent();
+  S.kind = kind;
+  document.getElementById('kind').value = kind;
+
+  // 换类后清空当前图状态：下面的 selectImage 会载入目标图自己的点位
+  S.imagePath = null;
+  S.img = null;
+  S.points = [];
+  S.selected = -1;
+  renderThumbs();
+
+  const imgs = manifest.kinds[kind] || [];
+  const bucket = S.data[kind] || {};
+  // 优先落在「已经设计过点位」的那张图，省得每次都要翻
+  const pick = imgs.find((rel) => bucket[rel]) || imgs[0];
+  if (pick) {
+    selectImage(pick);
+  } else {
+    S.grid = { w: 8, h: 6 };
+    document.getElementById('gw').value = 8;
+    document.getElementById('gh').value = 6;
+    renderPointList();
+    draw();
+  }
+}
+
+function renderThumbs() {
+  const box = document.getElementById('thumbs');
+  box.innerHTML = '';
+  const imgs = manifest.kinds[S.kind] || [];
+  if (!imgs.length) {
+    box.innerHTML = '<div class="empty" style="color:var(--dim)">' + E('ed.noImages') + '</div>';
+    return;
+  }
+  for (const rel of imgs) {
+    const d = document.createElement('div');
+    const isOut = /(_alpha|_cut2?)$/.test(rel.split('/').pop().replace(/\.\w+$/, ''));
+    d.className = 'thumb' + (rel === S.imagePath ? ' on' : '') + (isOut ? ' out' : '');
+    d.dataset.rel = rel;
+    d.title = rel;
+    const im = document.createElement('img');
+    im.src = BUILDINGS_BASE + rel + '?v=' + Date.now();
+    im.loading = 'lazy';
+    const sp = document.createElement('span');
+    sp.textContent = rel.split('/').pop().replace(/\.\w+$/, '')
+      + (isOut ? ' · ' + E('ed.cut') : ' · ' + E('ed.orig'));
+    d.appendChild(im); d.appendChild(sp);
+    d.onclick = () => selectImage(rel);
+    box.appendChild(d);
+  }
+}
+
+function selectImage(rel) {
+  if (rel !== S.imagePath) {
+    // 先存上一张图的点位，再载入这一张图自己的点位 —— 每张贴图互不覆盖
+    stashCurrent();
+    S.imagePath = rel;
+    const spec = (S.data[S.kind] || {})[rel] || {};
+    S.grid = { w: spec.grid?.w || 8, h: spec.grid?.h || 6 };
+    document.getElementById('gw').value = S.grid.w;
+    document.getElementById('gh').value = S.grid.h;
+    S.points = (spec.points || []).map((p) => ({ ...p }));
+    S.selected = -1;
+    renderPointList();
+  }
+  for (const el of document.querySelectorAll('#thumbs .thumb')) {
+    el.classList.toggle('on', el.dataset.rel === rel);
+  }
+  const im = new Image();
+  im.onload = () => {
+    S.img = im;
+    document.getElementById('status').textContent =
+      rel + ' · ' + im.naturalWidth + '×' + im.naturalHeight + ' px';
+    draw();
+  };
+  im.onerror = () => {
+    S.img = null;
+    document.getElementById('status').textContent = E('ed.imgFail') + rel;
+    draw();
+  };
+  im.src = BUILDINGS_BASE + rel + '?v=' + Date.now();
+}
+
+/* ---------- 画布尺寸 ---------- */
+function resize() {
+  const r = stage.getBoundingClientRect();
+  DPR = window.devicePixelRatio || 1;
+  cv.width = Math.max(400, Math.floor(r.width * DPR));
+  cv.height = Math.max(320, Math.floor(r.height * DPR));
+  cv.style.width = r.width + 'px';
+  cv.style.height = r.height + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  draw();
+}
+window.addEventListener('resize', resize);
+
+/** 当前把图片等比放进画布后的矩形（CSS 像素坐标）。 */
+function imageRect() {
+  const W = cv.width / DPR, H = cv.height / DPR;
+  const pad = 26;
+  let iw = 1, ih = 1;
+  if (S.img) { iw = S.img.naturalWidth; ih = S.img.naturalHeight; }
+  const scale = Math.min((W - pad * 2) / iw, (H - pad * 2) / ih);
+  const w = iw * scale, h = ih * scale;
+  return { x: (W - w) / 2, y: (H - h) / 2, w, h, W, H };
+}
+
+/* ---------- 绘制 ---------- */
+function draw() {
+  const R = imageRect();
+  ctx.clearRect(0, 0, R.W, R.H);
+
+  if (S.img) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(S.img, R.x, R.y, R.w, R.h);
+  } else {
+    ctx.fillStyle = '#20272f';
+    ctx.fillRect(R.x, R.y, R.w, R.h);
+    ctx.fillStyle = '#8b98a6';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(E('ed.pickImage'), R.x + R.w / 2, R.y + R.h / 2);
+    ctx.textAlign = 'start';
+  }
+
+  drawGrid(R);
+  drawStrokes(R);
+  drawPoints(R);
+  updateStatusLine(R);
+}
+
+function drawGrid(R) {
+  const { w: gw, h: gh } = S.grid;
+  ctx.save();
+  // 格子分割线（细），外框（亮）
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255,255,255,.22)';
+  for (let c = 1; c < gw; c++) {
+    const x = R.x + (R.w * c) / gw;
+    ctx.beginPath(); ctx.moveTo(x, R.y); ctx.lineTo(x, R.y + R.h); ctx.stroke();
+  }
+  for (let r = 1; r < gh; r++) {
+    const y = R.y + (R.h * r) / gh;
+    ctx.beginPath(); ctx.moveTo(R.x, y); ctx.lineTo(R.x + R.w, y); ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(79,163,224,.9)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(R.x, R.y, R.w, R.h);
+  // 左上角标格子数
+  ctx.fillStyle = 'rgba(79,163,224,.95)';
+  ctx.font = '11px monospace';
+  ctx.fillText(gw + '×' + gh, R.x + 4, R.y - 6);
+  ctx.restore();
+}
+
+function drawPoints(R) {
+  S.points.forEach((p, i) => {
+    const meta = PT_BY_ID[p.type] || PTYPES[0];
+    const x = R.x + p.fx * R.w;
+    const y = R.y + p.fy * R.h;
+    const on = i === S.selected;
+    if (on) {
+      ctx.beginPath();
+      ctx.arc(x, y, 11, 0, Math.PI * 2);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(x, y, 6.5, 0, Math.PI * 2);
+    ctx.fillStyle = meta.color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.65)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // 类型缩写标签，密集时也认得出
+    ctx.fillStyle = 'rgba(0,0,0,.75)';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(meta.id.slice(0, 3), x, y + 20);
+    ctx.textAlign = 'start';
+  });
+}
+
+/** 涂抹痕迹：半透明红，让「要删掉的区域」一眼看见。 */
+function drawStrokes(R) {
+  if (!S.strokes.length) return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,77,109,.45)';
+  for (const s of S.strokes) {
+    ctx.beginPath();
+    ctx.arc(R.x + s.fx * R.w, R.y + s.fy * R.h, Math.max(2, s.r * R.w), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function updateStatusLine(R) {
+  let extra = '';
+  const sel = S.points[S.selected];
+  if (sel) {
+    const col = Math.min(S.grid.w - 1, Math.floor(sel.fx * S.grid.w));
+    const row = Math.min(S.grid.h - 1, Math.floor(sel.fy * S.grid.h));
+    extra = ' · ' + E('ed.selected') + (S.selected + 1) +
+            ' fx=' + sel.fx.toFixed(3) + ' fy=' + sel.fy.toFixed(3) +
+            ' ' + E('ed.toTile') + col + ',' + row + ')';
+  }
+  statusEl.textContent =
+    (S.imagePath || '—') + ' · ' + E('ed.gridWord') + ' ' + S.grid.w + '×' + S.grid.h +
+    ' · ' + E('ed.pointsWord') + ' ' + S.points.length + E('ed.pointsUnit') + extra +
+    (S.paint
+      ? ' · ' + ET('ed.paintMode', {
+          grow: S.grow ? E('ed.growOn') : E('ed.growOff'),
+          n: S.strokes.length,
+        })
+      : ' · ' + E('ed.hoverHint'));
+}
+
+/* ---------- 交互：落点 / 拖动 / 删除 ---------- */
+function toNorm(ev) {
+  const R = imageRect();
+  const rc = cv.getBoundingClientRect();
+  const px = ev.clientX - rc.left;
+  const py = ev.clientY - rc.top;
+  let fx = (px - R.x) / R.w;
+  let fy = (py - R.y) / R.h;
+  if (fx < -0.02 || fx > 1.02 || fy < -0.02 || fy > 1.02) return null; // 点在图片外
+  fx = clamp(fx, 0, 1);
+  fy = clamp(fy, 0, 1);
+  if (S.snap) {
+    // 吸附到格子中心：存中心比例，后端 floor(fx*w) 正好还原成该列
+    const col = clamp(Math.floor(fx * S.grid.w), 0, S.grid.w - 1);
+    const row = clamp(Math.floor(fy * S.grid.h), 0, S.grid.h - 1);
+    fx = (col + 0.5) / S.grid.w;
+    fy = (row + 0.5) / S.grid.h;
+  }
+  return { fx, fy };
+}
+
+/** 涂抹用坐标：归一化但不吸附格心（涂的是背景，不是点位）。 */
+function toNormRaw(ev) {
+  const R = imageRect();
+  const rc = cv.getBoundingClientRect();
+  const fx = (ev.clientX - rc.left - R.x) / R.w;
+  const fy = (ev.clientY - rc.top - R.y) / R.h;
+  if (fx < -0.06 || fx > 1.06 || fy < -0.06 || fy > 1.06) return null;
+  return { fx: clamp(fx, 0, 1), fy: clamp(fy, 0, 1) };
+}
+
+/** 记一个涂抹点：半径存成「相对图宽的比」，换窗口大小也不会跑位置。 */
+function addStroke(pos) {
+  const R = imageRect();
+  S.strokes.push({ fx: pos.fx, fy: pos.fy, r: S.brush / Math.max(1, R.w), g: S.gid });
+  draw();
+}
+
+/** 撤销最后一笔（一次按下→抬起算一笔）；没有可撤销的返回 false。 */
+function undoStroke() {
+  if (!S.strokes.length) return false;
+  const g = S.strokes[S.strokes.length - 1].g;
+  S.strokes = S.strokes.filter((s) => s.g !== g);
+  draw();
+  return true;
+}
+
+/** 命中测试：返回离点击处最近且在 12px 内的点位下标。 */
+function hitTest(ev) {
+  const R = imageRect();
+  const rc = cv.getBoundingClientRect();
+  const px = ev.clientX - rc.left;
+  const py = ev.clientY - rc.top;
+  let best = -1, bestD = 12;
+  S.points.forEach((p, i) => {
+    const d = Math.hypot(R.x + p.fx * R.w - px, R.y + p.fy * R.h - py);
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  return best;
+}
+
+function bindEvents() {
+  cv.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    const i = hitTest(ev);
+    if (i >= 0) { S.points.splice(i, 1); S.selected = -1; renderPointList(); draw(); }
+  });
+
+  cv.addEventListener('mousedown', (ev) => {
+    if (ev.button !== 0) return;
+    if (S.paint) {                 // 涂抹模式：画布上拖动 = 标出背景
+      const pos = toNormRaw(ev);
+      if (!pos) return;
+      S.painting = true;
+      S.gid++;                     // 新的一笔（撤销按笔回退）
+      addStroke(pos);
+      return;
+    }
+    const i = hitTest(ev);
+    if (i >= 0) {              // 命中已有点 -> 选中并准备拖动
+      S.selected = i;
+      S.dragging = true;
+      renderPointList();
+      draw();
+      return;
+    }
+    const pos = toNorm(ev);
+    if (!pos) return;
+    S.points.push({ type: S.draftType, fx: pos.fx, fy: pos.fy });
+    S.selected = S.points.length - 1;
+    renderPointList();
+    draw();
+  });
+
+  window.addEventListener('mousemove', (ev) => {
+    if (S.painting) {              // 涂抹：每 4px 记一点，免得一次拖动几千个点
+      const pos = toNormRaw(ev);
+      if (!pos) return;
+      const R = imageRect();
+      const last = S.strokes[S.strokes.length - 1];
+      if (last && Math.hypot((pos.fx - last.fx) * R.w,
+                             (pos.fy - last.fy) * R.h) < 4) return;
+      addStroke(pos);
+      return;
+    }
+    if (!S.dragging || S.selected < 0) return;
+    const pos = toNorm(ev);
+    if (!pos) return;
+    const p = S.points[S.selected];
+    p.fx = pos.fx; p.fy = pos.fy;
+    draw();
+    renderPointList();
+  });
+
+  window.addEventListener('mouseup', () => { S.dragging = false; S.painting = false; });
+
+  // 数字键切类型 / Delete 删选中 / Ctrl+S 导出
+  window.addEventListener('keydown', (ev) => {
+    const tag = (ev.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
+    const pt = PTYPES.find((t) => t.key === ev.key);
+    if (pt) { setDraftType(pt.id); return; }
+    // 方向键微调选中点位：默认 0.2%，按住 Shift 为 2%
+    const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    if (ARROWS[ev.key] && S.selected >= 0) {
+      ev.preventDefault();
+      const step = ev.shiftKey ? 0.02 : 0.002;
+      const [dx, dy] = ARROWS[ev.key];
+      const cur = S.points[S.selected];
+      cur.fx = clamp(cur.fx + dx * step, 0, 1);
+      cur.fy = clamp(cur.fy + dy * step, 0, 1);
+      if (S.snap) {                      // 微调 = 精确摆放，自动取消吸附
+        S.snap = false;
+        document.getElementById('snap').checked = false;
+      }
+      draw(); renderPointList();
+      return;
+    }
+    if ((ev.key === 'Delete' || ev.key === 'Backspace') && S.selected >= 0) {
+      ev.preventDefault();
+      S.points.splice(S.selected, 1);
+      S.selected = -1;
+      renderPointList(); draw();
+    }
+    if (S.paint && ev.ctrlKey && ev.key.toLowerCase() === 'z') {
+      ev.preventDefault();
+      if (undoStroke()) toast(E('ed.undoOne'));
+      return;
+    }
+    if (ev.ctrlKey && ev.key.toLowerCase() === 's') { ev.preventDefault(); exportJSON(); }
+  });
+
+  document.getElementById('gw').oninput = (e) => {
+    S.grid.w = clamp(parseInt(e.target.value, 10) || 8, 2, 24);
+    draw();
+  };
+  document.getElementById('gh').oninput = (e) => {
+    S.grid.h = clamp(parseInt(e.target.value, 10) || 6, 2, 24);
+    draw();
+  };
+  document.getElementById('snap').onchange = (e) => { S.snap = e.target.checked; };
+
+  // 保存到项目：直接把当前点位 POST 给后端写盘，省掉「下载 → 手动搬文件」。
+  // 后端会先备份 points.json.bak；仿真是启动时读点位的，所以保存后要重启 server。
+  document.getElementById('btn-apply').onclick = async (ev) => {
+    const btn = ev.currentTarget;
+    const js = snapshot();
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/furniture-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(js),
+      });
+      if (!res.ok) {
+        // 500 时 FastAPI 返回的是纯文本，直接 res.json() 会抛 SyntaxError，
+        // 把真实原因（后端的 traceback 摘要）吞掉 —— 先把文本读出来再报。
+        const txt = await res.text();
+        throw new Error('HTTP ' + res.status + ': ' + txt.slice(0, 200));
+      }
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      toast(ET('ed.applied', { n: Object.keys(js.kinds).length }));
+    } catch (e) {
+      toast(E('ed.saveFail') + e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+  document.getElementById('btn-export').onclick = exportJSON;
+  document.getElementById('btn-clear').onclick = () => {
+    if (!S.points.length || !confirm(ET('ed.confirmClear', { rel: S.imagePath || '' }))) return;
+    S.points = []; S.selected = -1; renderPointList(); draw();
+  };
+  document.getElementById('btn-copy').onclick = async () => {
+    stashCurrent();
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(snapshot(), null, 2));
+      toast(E('ed.copied'));
+    } catch (e) { toast(E('ed.copyFail') + e.message); }
+  };
+
+  // 去背景：后端色键抠图（棋盘格 / 纯色底都认），产出同名 .png 并改 manifest。
+  // 点位跟着图走 —— 旧文件的点位整体搬到新 PNG 名下，不会因为换文件名而丢。
+  // manual=true 时把涂抹点一起送上去，后端改走「从涂抹点区域生长」。
+  async function runCutout(manual, btn) {
+    if (!S.imagePath) { toast(E('ed.needImage')); return; }
+    if (manual && !S.strokes.length) { toast(E('ed.needStrokes')); return; }
+    const oldRel = S.imagePath;
+    btn.disabled = true;
+    toast(manual ? E('ed.cuttingManual') : E('ed.cuttingAuto'));
+    try {
+      const body = { rel: oldRel };
+      if (manual) {
+        body.seeds = S.strokes.map((s) => ({ fx: s.fx, fy: s.fy, r: s.r }));
+        body.tol = S.ptol;
+        body.grow = S.grow;
+      }
+      const res = await fetch('/api/cutout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+
+      // 先把当前图点位存下，再整体搬到新 PNG 名下
+      stashCurrent();
+      const bucket = S.data[S.kind] || (S.data[S.kind] = {});
+      if (bucket[oldRel]) { bucket[data.rel] = bucket[oldRel]; delete bucket[oldRel]; }
+
+      // 后端已把 manifest 里的 .jpg 换成 .png，重拉一次让缩略图跟上
+      const r2 = await fetch(BUILDINGS_BASE + 'manifest.json', { cache: 'no-cache' });
+      if (r2.ok) manifest = await r2.json();
+      S.imagePath = null;                       // 让 selectImage 走「载入新图」分支
+      S.strokes = [];                           // 涂抹已完成使命，清掉免得误导
+      renderThumbs();
+      selectImage(data.rel);
+
+      const tr = data.info && data.info.transparent != null
+        ? Math.round(data.info.transparent * 100) + '%' : '—';
+      toast(ET('ed.cutDone', { p: tr, f: data.rel.split('/').pop() }));
+    } catch (e) {
+      toast(E('ed.cutFail') + e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById('btn-cutout').onclick = (ev) => runCutout(false, ev.currentTarget);
+  document.getElementById('btn-cutout-manual').onclick = (ev) => runCutout(true, ev.currentTarget);
+
+  // 涂抹模式开关：打开后画布拖动 = 刷背景，不再落点位
+  const paintBtn = document.getElementById('btn-paint');
+  paintBtn.onclick = () => {
+    S.paint = !S.paint;
+    updatePaintBtn();
+    paintBtn.style.background = S.paint ? '#ff4d6d' : '';
+    paintBtn.style.color = S.paint ? '#fff' : '';
+    cv.style.cursor = S.paint ? 'crosshair' : 'default';
+    draw();
+  };
+  document.getElementById('btn-paint-clear').onclick = () => {
+    S.strokes = [];
+    draw();
+    toast(E('ed.paintCleared'));
+  };
+  document.getElementById('brush').oninput = (e) => { S.brush = +e.target.value; };
+  document.getElementById('ptol').oninput = (e) => { S.ptol = +e.target.value; };
+  document.getElementById('btn-paint-undo').onclick = () => {
+    toast(undoStroke() ? E('ed.undoOne') : E('ed.undoNone'));
+  };
+  document.getElementById('paint-grow').onchange = (e) => {
+    S.grow = e.target.checked;
+    draw();
+  };
+
+  // 换图 = 之前的涂抹作废（位置对不上新图）
+  const _selectImage = selectImage;
+  selectImage = function (rel) { S.strokes = []; return _selectImage(rel); };
+  const file = document.getElementById('file');
+  document.getElementById('btn-import').onclick = () => { file.value = ''; file.click(); };
+  file.onchange = async () => {
+    const f = file.files && file.files[0];
+    if (!f) return;
+    try {
+      const js = JSON.parse(await f.text());
+      const migrated = migrateKinds(js.kinds || {});
+      Object.assign(S.data, migrated);
+      const first = Object.keys(migrated)[0];
+      if (first) selectKind(first);
+      toast(ET('ed.imported', { n: Object.keys(migrated).length }));
+    } catch (e) { toast(E('ed.importFail') + e.message); }
+  };
+}
+
+/* ---------- 列表 / 导出 ---------- */
+function renderPointList() {
+  const box = document.getElementById('plist');
+  box.innerHTML = '';
+  document.getElementById('pcount').textContent =
+    S.points.length ? ET('ed.pointsCount', { n: S.points.length }) : '';
+  if (!S.points.length) {
+    box.innerHTML = '<div class="empty">' + E('ed.empty') + '</div>';
+    return;
+  }
+  S.points.forEach((p, i) => {
+    const meta = PT_BY_ID[p.type] || PTYPES[0];
+    const col = Math.min(S.grid.w - 1, Math.floor(p.fx * S.grid.w));
+    const row = Math.min(S.grid.h - 1, Math.floor(p.fy * S.grid.h));
+    const d = document.createElement('div');
+    d.className = 'pitem' + (i === S.selected ? ' on' : '');
+    d.innerHTML = '<i style="background:' + meta.color + '"></i>' +
+      ptypeName(meta) + '<span class="co">(' + col + ',' + row + ')</span>' +
+      '<span class="del" title="' + E('ed.del') + '">×</span>';
+    d.onclick = (ev) => {
+      if (ev.target.classList.contains('del')) {
+        S.points.splice(i, 1);
+        if (S.selected >= S.points.length) S.selected = -1;
+        renderPointList(); draw();
+        return;
+      }
+      S.selected = i;
+      renderPointList(); draw();
+    };
+    box.appendChild(d);
+  });
+}
+
+function snapshot() {
+  stashCurrent();
+  const kinds = {};
+  for (const [kind, bucket] of Object.entries(S.data)) {
+    const images = {};
+    for (const [rel, spec] of Object.entries(bucket || {})) {
+      if (!spec || !Array.isArray(spec.points) || !spec.points.length) continue;
+      images[rel] = {
+        grid: spec.grid || { w: 8, h: 6 },
+        points: spec.points,
+      };
+    }
+    if (Object.keys(images).length) kinds[kind] = { images };   // 空图不写，保持文件干净
+  }
+  return {
+    _comment: '归一化点位：fx/fy ∈ [0,1]；后端按 col=floor(fx*w), row=floor(fy*h) 还原格子；点位按贴图分份',
+    version: 2,
+    kinds,
+  };
+}
+
+function exportJSON() {
+  const js = snapshot();
+  const blob = new Blob([JSON.stringify(js, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'points.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  const n = Object.keys(js.kinds).length;
+  toast(ET('ed.exported', { n: n }));
+}
+
+/* ---------- 语言下拉：切换即生效、写 localStorage、不用刷新 ---------- */
+document.getElementById('lang').onchange = (e) => applyLang(e.target.value);
+
+// 别的标签页切了语言（主站 ⚙ 里选的），这一页跟着变。
+// storage 事件只发给**其他**窗口，本页自己写不会回环；再加 newValue !== LANG 兜一层。
+window.addEventListener('storage', (e) => {
+  if (e.key === LANG_KEY && e.newValue && e.newValue !== LANG) applyLang(e.newValue);
+});
+
+applyLang(LANG);        // 首次套用已保存的语言（含 <title> 与 <html lang>）
+
+boot();
+</script>
+</body>
+</html>

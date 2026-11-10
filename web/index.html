@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EvilTown · 小镇模拟器</title>
+<style>
+  /* 建筑面板的营业时间输入行（仅此处用，避免动全局 style.css） */
+  .b-hours { display: flex; align-items: center; gap: .4rem; margin-top: .4rem; flex-wrap: wrap; }
+  .b-hours label { display: inline-flex; align-items: center; gap: .25rem; font-size: .82rem; }
+  .b-hours input { width: 4.5em; }
+  .b-hours button { cursor: pointer; }
+  /* 运行状态徽标：一眼看清「运行中 / 已暂停」，避免把「暂停」或「夜里都在睡觉」误当成死机 */
+  #run-state {
+    font-size: .8rem; padding: .12rem .5rem; border-radius: 999px;
+    background: rgba(111,220,140,.16); color: #6fdc8c;
+    border: 1px solid rgba(111,220,140,.4); white-space: nowrap;
+  }
+  #run-state.is-paused {
+    background: rgba(255,204,102,.16); color: #ffcc66;
+    border-color: rgba(255,204,102,.45);
+  }
+  #run-state.beat { box-shadow: 0 0 0 2px rgba(111,220,140,.22); }
+</style>
+<link rel="stylesheet" href="/static/style.css?v=20" />
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <h1>EvilTown</h1>
+    <div class="clock">
+      <span id="day">第 1 天</span>
+      <span id="clock" class="mono">06:00</span>
+      <span id="night" class="badge hidden" data-i18n="hud.night">夜</span>
+      <span id="run-state" class="badge" data-i18n="run.connecting">连接中…</span>
+    </div>
+    <div class="controls">
+      <button id="btn-pause" data-i18n="top.pause">暂停</button>
+      <button id="btn-step" data-i18n="top.step">单步</button>
+      <button id="btn-reset" data-i18n="top.reset">重置</button>
+      <label class="speed" data-i18n-title="top.speedTitle" title="仿真速度倍率：1=正常，10=快，200=极快。">
+        <span data-i18n="top.speed">速度</span>
+        <input id="speed" type="range" min="-10" max="10" step="0.5" value="0" />
+        <span id="speed-val" class="mono">1×</span>
+      </label>
+      <button id="speed-reset" class="mini" data-i18n-title="top.speedReset" title="恢复正常速度 1×">1×</button>
+      <label class="names-toggle" data-i18n-title="top.namesTitle" title="在地图上的居民点内显示姓名">
+        <input id="show-names" type="checkbox" checked /> <span data-i18n="top.names">名字</span>
+      </label>
+      <span class="zoom-ctl" data-i18n-title="top.zoomTitle" title="地图缩放（人和建筑一起放大，便于点选）">
+        <button id="zoom-out" class="mini" data-i18n-title="top.zoomOut" title="缩小地图">－</button>
+        <span id="zoom-val" class="mono">100%</span>
+        <button id="zoom-in" class="mini" data-i18n-title="top.zoomIn" title="放大地图">＋</button>
+        <button id="zoom-fit" class="mini" data-i18n="top.fit" data-i18n-title="top.zoomFit" title="缩放到适应窗口">适应</button>
+      </span>
+      <button id="btn-settings" class="mini" data-i18n-title="top.settings" title="设置" aria-haspopup="true">⚙</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="stage">
+      <div class="stage-inner">
+        <canvas id="map"></canvas>
+        <div id="tooltip" class="tooltip hidden"></div>
+      </div>
+      <div class="legend" id="legend"></div>
+    </section>
+
+    <aside class="side">
+      <!-- 顶栏横条：左侧切「数据」（原有面板不动），右侧切「日志」 -->
+      <div class="side-tabs">
+        <button class="side-tab is-on" data-tab="data" data-i18n="tab.data">数据</button>
+        <button class="side-tab" data-tab="log" data-i18n="tab.log">日志</button>
+        <button class="side-tab" data-tab="report" data-i18n="tab.report">日报</button>
+      </div>
+
+      <div class="side-page" id="side-data">
+      <div class="panel">
+        <h2 data-i18n="panel.overview">概览</h2>
+        <div id="stats" class="stats"></div>
+      </div>
+
+      <div class="panel">
+        <h2 data-i18n="panel.buildingLegend">建筑图例</h2>
+        <div id="building-legend" class="legend legend-side"></div>
+      </div>
+
+      <div class="panel">
+        <h2 data-i18n="panel.pointLegend">点位颜色</h2>
+        <div id="point-legend" class="legend legend-side"></div>
+      </div>
+
+      <div class="panel">
+        <h2><span data-i18n="panel.field">场热力</span>
+          <select id="field-select"><option value="" data-i18n="field.off">关闭</option></select>
+          <span id="field-peak" class="mono"></span>
+        </h2>
+        <div class="hint" data-i18n="field.hint">选择通道后叠加显示 CA 场浓度（越亮越浓）</div>
+      </div>
+
+      <div class="panel grow">
+        <h2 data-i18n="panel.events">事件流</h2>
+        <ul id="events" class="events"></ul>
+      </div>
+
+      <div class="panel" id="resident-panel" hidden>
+        <h2><span data-i18n="panel.resident">居民</span> <span id="r-name" class="mono"></span>
+          <button id="r-log" class="mini" data-i18n="r.log">日志</button>
+          <button id="r-close" class="mini">×</button>
+        </h2>
+        <div id="r-body"></div>
+      </div>
+
+      <div class="panel" id="building-panel" hidden>
+        <h2><span data-i18n="panel.building">建筑</span> <span id="b-name" class="mono"></span>
+          <button id="b-close" class="mini">×</button>
+        </h2>
+        <div id="b-body"></div>
+        <div class="b-hours">
+          <label><span data-i18n="b.opens">开门</span> <input id="b-opens" type="number" min="0" max="24" step="0.5" /></label>
+          <label><span data-i18n="b.closes">关门</span> <input id="b-closes" type="number" min="0" max="24" step="0.5" /></label>
+          <button id="b-save" data-i18n="b.save">保存</button>
+        </div>
+        <div class="hint" id="b-note"></div>
+        <div class="hint" id="b-msg"></div>
+      </div>
+      </div><!-- /#side-data -->
+
+      <!-- 日志页：默认全城，点地图上某个人后只看他 -->
+      <div class="side-page" id="side-log" hidden>
+        <div class="panel grow">
+          <h2>
+            <span id="log-title" data-i18n="log.town">小镇日志</span>
+            <button id="log-all" class="mini hidden" data-i18n="log.all">看全城</button>
+          </h2>
+          <div class="hint" id="log-hint" data-i18n="log.hint">点地图上的人，只看他这一天干了什么</div>
+          <ul id="log-list" class="logs"></ul>
+        </div>
+      </div>
+      <!-- 日报页：白天每 2 小时一段，夜里合成一整段 -->
+      <div class="side-page" id="side-report" hidden>
+        <div class="panel grow">
+          <h2>
+            <span data-i18n="report.title">统计日报</span>
+            <select id="report-day"></select>
+          </h2>
+          <div class="hint" data-i18n="report.hint">白天每 2 小时一段，夜里 22:00–06:00 合成一整段</div>
+          <div id="report-body" class="report"></div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="statusbar"><span id="status" data-i18n="status.connecting">连接中…</span></footer>
+</div>
+
+<!-- 右上角设置面板：目前只有语言，后续开关可以继续往下加 -->
+<div id="settings-pop" class="settings-pop hidden" role="dialog" aria-label="Settings">
+  <div class="set-head">
+    <strong data-i18n="settings.title">设置</strong>
+    <button id="settings-close" class="mini" data-i18n-title="settings.close" title="关闭">×</button>
+  </div>
+  <label class="set-row">
+    <span data-i18n="settings.language">语言 / Language</span>
+    <select id="lang-select"></select>
+  </label>
+  <p class="set-hint" data-i18n="settings.hint">选中后立即生效，刷新页面也会记住。</p>
+</div>
+
+<!-- ⚠️ 这里两个 ?v= 是**缓存钥匙**，任何一次改动 i18n.js / app.js 都必须把它 +1。
+     2026-11-11 的坑：i18n.js 里加了「默认英文 + setLang 通知监听者」，但版本号还是 v=2，
+     浏览器一直用旧缓存 ⇒ 表现为「进去还是中文」「切英文要手动刷新」，改代码怎么改都不生效。 -->
+<script src="/static/i18n.js?v=4"></script>
+<script src="/static/app.js?v=42"></script>
+</body>
+</html>

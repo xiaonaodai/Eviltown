@@ -1,0 +1,45 @@
+# EvilTown 运行配置
+world:
+  width: 240          # 网格宽（tile）
+  height: 160         # 网格高（tile）
+  tile_px: 24         # 每 tile 像素（前端渲染基准）；6→10→16→24，越大放大越清晰（画布 5760×3840，约 88MB）
+  field_stride: 1     # CA 场每 N tick 演化一次（调大可提速）
+
+population: 50        # 居民数量
+
+time:
+  ticks_per_day: 1440 # 1 tick = 1 仿真分钟
+  start_day: 1
+  start_tick: 360     # 06:00
+  speed: 1            # 初始倍率：1=常速（约 5 分钟一天），0.1~10 可小数，0=无限
+  max_ticks_per_frame: 400  # 无限倍率时每帧预算上限
+
+# LLM 配置（可选）。密钥不要写在这里 —— 放在项目根的 .env 里（见 .env.example），
+# .env 已被 .gitignore 排除。什么都不配也能跑：愿望/日记/聊天自动用内置模板。
+llm:
+  enabled: true
+  base_url: "${EVILTOWN_LLM_BASE_URL:-http://127.0.0.1:8080/v1}"  # 任意 OpenAI 兼容接口
+  model: "${EVILTOWN_LLM_MODEL:-local-model}"
+  api_key: "${EVILTOWN_LLM_KEY:-}"  # 未设置则为空；要密钥就写进项目根 .env，开源仓库里不出现真密钥
+  timeout: 20
+  intensity: "realistic"   # off | light | realistic | rich
+  language: "${EVILTOWN_LLM_LANG:-zh}"  # zh | en；运行时会跟随网页界面语言
+  diary: true          # 每天为居民写日记（false = 不生成，日志仍是模板）
+  chat: false          # 聊天交给 LLM 的总开关（默认关，省钱也省调试）
+  chat_residents: 1    # 自动挑几个人开聊天：1 = 只开一个人；0 = 一个都不开
+
+storage:
+  db_path: "data/eviltown.db"
+  reports_dir: "data/reports"
+  record_events: true
+
+server:
+  host: "0.0.0.0"     # 监听所有网卡，局域网设备可访问（仅限可信内网，勿映射公网）
+  port: 8000
+  frame_interval_ms: 200   # WebSocket 推帧间隔
+
+# 建筑室内点位（由 web/furniture-editor.html 导出）。
+# 室内的马桶 / 床位**只**来自这个文件；读不到 → 室内不生成马桶和床位，
+# 不会回落到旧的随机挑格逻辑。路径相对项目根。
+furniture:
+  points_path: points.json

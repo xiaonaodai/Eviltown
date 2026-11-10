@@ -1,0 +1,12 @@
+# 核心
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+PyYAML>=6.0
+websockets>=12.0
+
+# LLM（本地 llama.cpp 兼容 OpenAI 接口，可选）
+httpx>=0.27
+
+# 记忆向量检索（可选，缺失时自动降级为关键词检索）
+# sqlite-vec>=0.1.6

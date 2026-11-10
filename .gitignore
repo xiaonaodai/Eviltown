@@ -1,0 +1,32 @@
+# --- Secrets: NEVER commit these -------------------------------------------
+.env
+.env.local
+.env.*.local
+
+# --- Runtime artifacts ------------------------------------------------------
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# --- Local backups & AI records --------------------------------------------
+*.bak
+.link-agent/
+
+# --- 生成的可公开副本（tools/_make_public.py 的产物，别提交）-----------------
+public/
+eviltown-public/
+
+# --- OS / editor ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

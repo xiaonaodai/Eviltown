@@ -1,0 +1,403 @@
+/* EvilTown 前端样式：深色、信息密度优先，无第三方依赖 */
+:root {
+  --bg: #14161a;
+  --panel: #1d2026;
+  --panel-2: #23272f;
+  --line: #2e333c;
+  --fg: #dfe3ea;
+  --fg-dim: #8b93a1;
+  --accent: #6fb1ff;
+  --warn: #ffcc66;
+  --danger: #ff6b6b;
+  --ok: #6fdc8c;
+  --mono: "Cascadia Mono", "Consolas", "SF Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+.mono { font-family: var(--mono); }
+.hidden { display: none !important; }
+
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.topbar h1 { margin: 0; font-size: 16px; letter-spacing: .5px; }
+.clock { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.clock #day { color: var(--fg-dim); }
+.clock #clock { font-weight: 600; }
+.badge {
+  background: #2b2f6b; color: #b9c2ff;
+  border-radius: 4px; padding: 1px 6px; font-size: 12px;
+}
+.controls { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+button, select {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover, select:hover { border-color: var(--accent); }
+button:active { transform: translateY(1px); }
+button.mini { padding: 0 6px; margin-left: 6px; line-height: 1.2; }
+
+.speed { display: flex; align-items: center; gap: 8px; color: var(--fg-dim); }
+.speed input[type="range"] { width: 140px; }
+/* 顶栏「名字」开关：与 .speed 同风格，控制地图居民点内是否显示姓名 */
+.names-toggle {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.names-toggle input { cursor: pointer; }
+
+/* ---------- 主区 ---------- */
+main { flex: 1; display: flex; min-height: 0; }
+
+.stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 8px;
+  overflow: auto;
+}
+.stage-inner { position: relative; display: inline-block; }
+#map {
+  display: block;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  image-rendering: pixelated;
+  background: #3f6b3a; /* 与地形 GRASS 同色：加载期/贴图透明处不露黑底 */
+  cursor: crosshair;
+  /* ⚠️ 不要用 max-width:100% 强制收缩！
+     画布真实宽 = 240 tile × tile_px(10) = 2400px，若被压到舞台宽度（约 1500px）
+     会整体等比缩到 0.62 倍，居民点 11px 在屏幕上只剩 7px —— 这才是「点不到人」的根因，
+     也是此前调大 tile_px 却看不出效果的原因。
+     现改为由 app.js::applyZoom() 显式设置显示尺寸（默认 100%，可 50%–300% 缩放），
+     超出舞台时由 .stage 的 overflow:auto 滚动查看。 */
+  max-width: none;
+  height: auto;
+}
+
+/* 顶栏缩放控件：－ / 百分比 / ＋ / 适应 */
+.zoom-ctl { display: flex; align-items: center; gap: 4px; }
+.zoom-ctl #zoom-val { min-width: 42px; text-align: center; color: var(--fg-dim); font-size: 12px; }
+
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(12, 13, 16, .94);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 5;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .5);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 6px 4px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.legend .item { display: flex; align-items: flex-start; gap: 5px; }
+.legend .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(255,255,255,.15); margin-top: 2px; }
+/* 图例条目：中文在前、英文在后（各一行） */
+.legend .bi { display: flex; flex-direction: column; line-height: 1.25; }
+.legend .bi .cn { color: var(--fg); }
+.legend .bi .en { color: var(--fg-dim); font-size: 11px; font-family: var(--mono); }
+
+/* 侧栏内的建筑图例：竖排、两列自适应，避免长名称换行错位 */
+.legend-side {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 12px;
+  padding: 0;
+  color: var(--fg);
+}
+
+/* ---------- 侧栏 ---------- */
+.side {
+  width: 380px;
+  flex: 0 0 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 12px 0;
+  overflow: auto;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.panel.grow { flex: 1; min-height: 160px; display: flex; flex-direction: column; }
+.panel h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-dim);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.panel h2 select { padding: 2px 6px; font-size: 12px; }
+/* 面板标题的英文小字（中文在前、英文在后）：概览 / 建筑图例 / 事件流 / 居民 … */
+.panel h2 .h-en {
+  color: var(--fg-dim);
+  font-size: 11px;
+  font-weight: 400;
+  font-family: var(--mono);
+  letter-spacing: 0;
+}
+.hint { font-size: 12px; color: var(--fg-dim); }
+
+/* 概览 */
+.stats { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.stat-row { display: flex; justify-content: space-between; gap: 10px; }
+.stat-row .k { color: var(--fg-dim); }
+.stat-row .v { font-family: var(--mono); }
+/* 居民档案：键为「中文 + 英文小字」（.k-en 通用，标题里的姓名拼音也复用） */
+.stat-row .k-cn { color: var(--fg-dim); }
+.k-en { color: var(--fg-dim); font-size: 11px; font-family: var(--mono); margin-left: 5px; }
+/* 居民档案的值：中文值 + 灰色小字英文（如「工人 Worker」） */
+.stat-row .v-en { color: var(--fg-dim); font-size: 11px; font-family: var(--mono); margin-left: 5px; }
+
+/* 事件流 */
+.events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1;
+  font-size: 12.5px;
+}
+.events li {
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--line);
+  display: block;
+}
+
+/* 中英双语条目：一行中文，下一行英文翻译（概览 + 事件流共用） */
+.stat-bi, .ev-bi {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+.stat-bi .cn, .ev-bi .cn { color: var(--fg); }
+.stat-bi .en, .ev-bi .en {
+  color: var(--fg-dim);
+  font-size: 11.5px;
+  font-family: var(--mono);
+}
+/* 分组小标题：行动分布 / 关系 */
+.stat-group {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.stat-group .cn { color: var(--accent); font-weight: 600; }
+.stat-group .en { color: var(--fg-dim); font-size: 11.5px; font-family: var(--mono); }
+/* 事件流按类别着色 */
+.events li.k-social .cn { color: #d9a0ff; }
+.events li .t { color: var(--fg-dim); font-family: var(--mono); flex: 0 0 auto; }
+.events li .m { color: var(--fg); }
+.events li.k-action .m { color: var(--accent); }
+.events li.k-social .m { color: #d9a0ff; }
+.events li.k-need .m { color: var(--warn); }
+.events li.k-death .m { color: var(--danger); }
+.events li.k-birth .m { color: var(--ok); }
+.events li.k-sys .m { color: var(--fg-dim); }
+
+/* 居民详情 */
+.bars { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+.bar { display: grid; grid-template-columns: 44px 1fr 42px; align-items: center; gap: 8px; font-size: 12px; }
+.bar .bar-track { height: 7px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+.bar .bar-fill { height: 100%; border-radius: 4px; }
+.bar .num { text-align: right; font-family: var(--mono); color: var(--fg-dim); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12.5px; }
+.kv .k { color: var(--fg-dim); }
+.kv .v { font-family: var(--mono); }
+
+/* ---------- 状态栏 ---------- */
+.statusbar {
+  padding: 8px 20px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.6;
+  letter-spacing: .2px;
+  color: var(--fg);
+  font-family: var(--mono);
+  word-break: break-word;
+}
+.statusbar .err { color: var(--danger); }
+
+/* ---------- 右上角设置面板（语言切换） ---------- */
+#btn-settings { font-size: 15px; line-height: 1; padding: 0 8px; }
+.settings-pop {
+  position: fixed;
+  top: 54px;
+  right: 14px;
+  z-index: 60;
+  min-width: 230px;
+  padding: 10px 12px;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .45);
+  font-size: .88rem;
+}
+.settings-pop.hidden { display: none !important; }
+.set-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.set-head strong { letter-spacing: .3px; }
+.set-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; color: var(--fg-dim);
+}
+.set-row select { padding: 3px 8px; }
+.set-hint {
+  margin: 8px 0 0; color: var(--fg-dim);
+  font-size: .78rem; line-height: 1.45;
+}
+
+/* ---------- 右侧栏标签页（数据 / 日志） ---------- */
+/* 顶栏横条：左边保留原有概览等面板，右边的日志页放「每人每天干了什么」 */
+.side-tabs {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.side-tab {
+  flex: 1;
+  padding: 5px 0;
+  font-size: 12.5px;
+  color: var(--fg-dim);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.side-tab:hover { color: var(--fg); }
+.side-tab.is-on {
+  color: var(--fg);
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, .06);
+}
+/* 一页 = 原来的一整列面板；两页互斥显示 */
+.side-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+.side-page[hidden] { display: none; }
+
+/* ---------- 日志列表 ---------- */
+.logs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  font-size: 12.5px;
+}
+.logs li {
+  display: flex;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.logs li .t {
+  flex: 0 0 auto;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+}
+.logs li .who {
+  flex: 0 0 auto;
+  color: #7fd1ff;
+  max-width: 4.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.logs li .m { color: var(--fg); }
+/* 按天分隔行 */
+.logs li.day-sep {
+  display: block;
+  padding: 8px 0 3px;
+  border-bottom: none;
+  color: var(--fg-dim);
+  font-size: 11.5px;
+  font-family: var(--mono);
+}
+.logs li.k-work .m { color: #8fd3ff; }
+.logs li.k-eat .m  { color: #ffcc66; }
+.logs li.k-buy .m  { color: #9ef0a0; }
+.logs li.k-fish .m { color: #7fe0d0; }
+.logs li.k-bar .m  { color: #d9a0ff; }
+.logs li.k-treat .m { color: #ff9c9c; }
+.logs li.k-sleep .m { color: #a8b0c0; }
+.logs li.k-school .m { color: #a8e6ff; }
+.logs li.k-socialize .m { color: #ffe08a; }
+.logs li.k-toilet .m { color: #bcd0e6; }
+.logs li .empty { color: var(--fg-dim); }
+
+/* ---- 统计日报：白天 2 小时一段（8 段）+ 夜里整段（1 段） ---- */
+.report { display: flex; flex-direction: column; gap: 10px; }
+.rpt-bucket { border-left: 2px solid #2a3550; padding: 2px 0 2px 8px; }
+.rpt-bucket.is-night { border-left-color: #4a5a8a; background: rgba(40, 60, 110, .12); }
+.rpt-hd { display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 12px; color: #9fb0cc; margin-bottom: 3px; }
+.rpt-bucket.is-night .rpt-hd { color: #b9c8ee; }
+.rpt-people { font-variant-numeric: tabular-nums; color: #6f7f99; }
+.rpt-act { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; }
+.rpt-name { width: 62px; flex: none; color: #cfd9ea; }
+.rpt-bar { flex: 1; height: 8px; background: #1a2438; border-radius: 4px; overflow: hidden; }
+.rpt-bar > i { display: block; height: 100%; background: linear-gradient(90deg, #3d7bd6, #6fb3ff); }
+.rpt-bucket.is-night .rpt-bar > i { background: linear-gradient(90deg, #4a4a9e, #8a7bff); }
+.rpt-num { flex: none; color: #8fa1bb; font-variant-numeric: tabular-nums; }
+.rpt-none { font-size: 12px; color: #5f6f88; }
+
+/* 日报：本时段没有的动作用灰色占位 —— 位置保留、不抢眼，保证各行位置恒定 */
+.rpt-act.is-zero { opacity: .35; }

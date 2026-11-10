@@ -1,0 +1,61 @@
+{
+  "_comment": "由 .link-agent/rename_assets.py 生成；路径相对 web/assets/buildings/",
+  "version": 1,
+  "kinds": {
+    "home": [
+      "home/home_01_alpha.png",
+      "home/home_02_alpha.png",
+      "home/home_03.png",
+      "home/home_04.png",
+      "home/home_05.png",
+      "home/home_06.png",
+      "home/home_07.png",
+      "home/home_08_cut3_cut.png",
+      "home/home_09_cut2.png",
+      "home/home_10_cut2.png",
+      "home/home_11.png",
+      "home/home_12.png",
+      "home/home_13.png",
+      "home/home_14.png"
+    ],
+    "office": [
+      "office/office_01.png",
+      "office/office_02.png",
+      "office/office_03.png",
+      "office/office_04_alpha.png"
+    ],
+    "school": [
+      "school/school_01.png",
+      "school/school_02.png"
+    ],
+    "restaurant": [
+      "restaurant/restaurant_01.png",
+      "restaurant/restaurant_02.png",
+      "restaurant/restaurant_03.png"
+    ],
+    "shop": [
+      "shop/shop_01.png"
+    ],
+    "park": [
+      "park/park_01.png"
+    ],
+    "toilet": [
+      "toilet/toilet_01.png"
+    ],
+    "hospital": [
+      "hospital/hospital_01.png"
+    ],
+    "canteen": [
+      "canteen/canteen_01.png",
+      "canteen/canteen_02.png"
+    ],
+    "bar": [
+      "bar/bar_01.png",
+      "bar/bar_02.png"
+    ],
+    "fishing_pond": [
+      "fishing_pond/fishing_pond_01_cut3.png",
+      "fishing_pond/fishing_pond_02.png"
+    ]
+  }
+}
