@@ -140,6 +140,10 @@ def _fish_targets(buildings: list[Building],
 # 需求封顶 100 时 EAT 上限 1.2×100=120、TOILET 上限 1.4×100=140，
 # 故此处必须 >140；旧值 110 时睡眠永远排第二 → 整夜在餐馆/厕所之间来回，从不回家睡觉。
 _SLEEP_NIGHT_BASE = 150.0
+# 记忆召回的软权重上限（RAG）：单条记忆的 `bonus` 已在 memory_rag.TownHistory
+# 里按 `rag.weight` 与时间衰减封顶；这里再对「同一行动的累计」封一道 ——
+# 记忆只能微调偏好，**绝不**能顶翻作息/生计（150 分级）与紧急裁决。
+_RECALL_BONUS_CAP = 12.0
 # 需求阈值：低于此值不参与竞争（无需求就别到处跑；也让封顶值不再碾压睡眠）
 _NEED_GATE = 35.0
 # --- 上班刚性化（修复「早上不上班」）---
@@ -233,6 +237,7 @@ def decide(
     taken: set | None = None,
     crowd_hot: dict | None = None,
     ambient_light: float | None = None,
+    recall: list[dict] | None = None,
 ) -> Action:
     """对每个候选行为算效用，取最高。加一点噪声避免千人一面。
 
@@ -564,6 +569,22 @@ def decide(
             if a.kind in (ActionType.SOCIALIZE, ActionType.SHOP, ActionType.WANDER):
                 a.utility -= 300.0
                 a.reason = "在岗，不摸鱼"
+
+    # 记忆召回（RAG）：只给「对应的行为」加一点软权重 —— 不删候选、不改阈值。
+    # 位置很关键：生理紧急裁决已在上面 return，在岗惩罚也刚做完，
+    # 所以记忆永远推不翻「快饿晕」与「在岗不摸鱼」这两条硬规则。
+    if recall:
+        _bonus: dict[str, float] = {}
+        for _h in recall:
+            _k = str(_h.get("kind") or "").strip()
+            _b = float(_h.get("bonus") or 0.0)
+            if _k and _b > 0:
+                _bonus[_k] = _bonus.get(_k, 0.0) + _b
+        if _bonus:
+            for _a in scores:
+                _b = _bonus.get(_a.kind.value)
+                if _b:
+                    _a.utility += min(_RECALL_BONUS_CAP, _b)
 
     # 同分随机：并列最高分时随机挑一个，避免「永远选列表中靠前的那个」造成行为固化。
     best_u = max(a.utility for a in scores)

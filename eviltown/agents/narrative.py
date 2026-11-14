@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .llm_client import LLMClient, get_language
+from .memory_rag import query_from_state
 
 WISH_CN = {
     "wealth": "攒钱", "fame": "出名", "love": "被爱",
@@ -78,7 +79,8 @@ class DiaryBook:
                 f"one small thing after another.")
 
     # ---------------------------------------------------------------- LLM
-    def _prompt(self, r, items: list[str], lang: str) -> tuple[str, str]:
+    def _prompt(self, r, items: list[str], lang: str,
+                memories: list[str] | None = None) -> tuple[str, str]:
         wish = getattr(r, "wish", None)
         o = getattr(r, "ocean", None)
         who = []
@@ -98,11 +100,15 @@ class DiaryBook:
                       "用第一人称，写 60~120 字，口语、具体、别抒情、别总结人生。"
                       "只输出日记正文，不要标题、不要引号。")
             user = f"人物：{r.name}，{'，'.join(who)}。\n今天发生的事：\n{acts}"
+            if memories:
+                user += "\n你还记得：\n" + "\n".join(f"- {m}" for m in memories)
         else:
             system = ("You write the private diary of an ordinary small-town resident. "
                       "First person, 40-80 words, plain and concrete. No moralising, "
                       "no summary of life. Output only the diary text.")
             user = f"Person: {(r.name_en or r.name)}, {', '.join(who)}.\nToday:\n{acts}"
+            if memories:
+                user += "\nYou also remember:\n" + "\n".join(f"- {m}" for m in memories)
         return system, user
 
     def on_day_end(self, sim, day: int) -> None:
@@ -143,7 +149,15 @@ class DiaryBook:
         def worker() -> None:
             try:
                 for r, items, _ in snapshot:
-                    sys_p, usr_p = self._prompt(r, items, lang)
+                    # 长期记忆（RAG）：给日记 prompt 塞 1~2 条「你还记得…」，不阻塞主循环。
+                    mems: list[str] = []
+                    _h = getattr(sim, "history", None)
+                    if _h is not None and _h.enabled:
+                        try:
+                            mems = _h.remember_lines(r.name, now_day=day, r=r)
+                        except Exception:  # noqa: BLE001
+                            mems = []
+                    sys_p, usr_p = self._prompt(r, items, lang, mems)
                     txt = client.chat(sys_p, usr_p, lang=lang,
                                       max_tokens=320, temperature=0.95)
                     if not txt:

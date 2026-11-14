@@ -48,6 +48,22 @@ class LLMCfg:
 
 
 @dataclass
+class RagCfg:
+    """长期记忆召回（RAG）：把小镇历史写成可检索的句子，决策/日记前召回。
+
+    红线：**全部可关**。enabled=False 时不写库、不召回，主循环行为与加这个
+    功能之前一致（回归测试盯着这条）。
+    """
+    enabled: bool = True
+    recall_k: int = 2          # 每次决策最多召回几条
+    weight: float = 6.0        # 召回给候选行为加的最大软权重（分）：只调权重，不删候选
+    embed: bool = False        # 调 /v1/embeddings 存向量；默认关（没网也能跑关键词）
+    embed_model: str = ""      # 空 = 沿用 llm.model
+    half_life_days: float = 7.0  # 时间衰减半衰期：一周前的记忆权重减半
+    diary: bool = True         # 日记 prompt 里带 1~2 条「你还记得…」
+
+
+@dataclass
 class StorageCfg:
     db_path: str = "data/eviltown.db"
     reports_dir: str = "data/reports"
@@ -77,6 +93,7 @@ class Config:
     time: TimeCfg = field(default_factory=TimeCfg)
     llm: LLMCfg = field(default_factory=LLMCfg)
     storage: StorageCfg = field(default_factory=StorageCfg)
+    rag: RagCfg = field(default_factory=RagCfg)
     server: ServerCfg = field(default_factory=ServerCfg)
     furniture: FurnitureCfg = field(default_factory=FurnitureCfg)
 

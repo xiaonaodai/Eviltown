@@ -40,6 +40,7 @@ Install dependencies and start the server:
 * **Money and financial stress**: Eating, buying fishing gear, and utilities all cost money. If a resident's bank balance has been dropping over the last 7 days, they feel stressed and become more willing to go to work.
 * **Minors**: Residents under 18 will not visit the bar; the bar is automatically removed when picking destinations.
 * **Snoring**: Sensitive residents sleeping in the same room with a snoring housemate recover energy much slower at night.
+* **Long-term memory (RAG)**: Residents remember where they have been and what they did ("Alice went to the bar"). Before each decision and every nightly diary, a lightweight retrieval layer recalls the most relevant memories and nudges the matching action — **a soft bonus only, never a hard override**. Rules still win: someone starving will eat before shopping, no matter what they remember. Retrieval degrades gracefully (sqlite-vec → pure-Python cosine → keyword), so it works with no embedding service at all. Off by default (`rag.enabled: false`).
 
 ## License
 
@@ -85,6 +86,7 @@ Apache-2.0 license. See the [LICENSE](LICENSE) file for details.
 * **花钱与财务压力**：吃饭、买渔具、交水电都要花钱。如果最近几天存款一直在掉，小人会感到缺钱，更倾向于去上班。
 * **未成年人**：不满 18 岁的人不会去酒吧，选目的地时会自动过滤掉。
 * **打呼噜**：性格敏感的人如果遇到室友打呼噜，晚上的睡眠质量会变差。
+* **长期记忆（RAG）**：小人会记住自己去过哪、干了什么（「Alice 去酒吧喝了一杯」）。每次决策前和每晚写日记时，一层轻量检索会召回最相关的几条记忆，给对应行为加一点偏好分——**只加软权重，绝不覆盖规则**。规则永远优先：快饿晕的人照样先去吃饭，不管记忆里多爱逛街。检索三级降级（sqlite-vec → 纯 Python 余弦 → 关键词），没有 embedding 服务也能用。默认关闭（`rag.enabled: false`）。
 
 ## 许可
 
