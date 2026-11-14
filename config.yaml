@@ -28,6 +28,14 @@ llm:
   chat: false          # 聊天交给 LLM 的总开关（默认关，省钱也省调试）
   chat_residents: 1    # 自动挑几个人开聊天：1 = 只开一个人；0 = 一个都不开
 
+  # A2A 双回合对白：两个居民走到相邻格子时，让模型写「A 说一句 → B 接一句」。
+  # 默认关。开了但模型不可用 / 超时 / 解析不出两句 → 自动退回 interactions.py 的模板文案。
+  a2a: false               # 总开关
+  a2a_min_interval: 6.0    # 两次生成的最小间隔（秒）：本地 Ollama 在 CPU 上跑时别调太小
+  a2a_max_per_day: 120     # 每日生成上限；0 = 不限
+  a2a_max_queue: 16        # 待生成队列上限；满了直接丢新请求，绝不阻塞 tick
+  a2a_max_tokens: 200      # 单次生成 token 上限
+
 storage:
   db_path: "data/eviltown.db"
   reports_dir: "data/reports"
