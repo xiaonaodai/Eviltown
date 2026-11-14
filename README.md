@@ -14,11 +14,11 @@ The Game of Life looks at the life and death of cells on a grid. EvilTown borrow
 
 ## What It Is Built On
 
-I made this project after reading *Think Complexity*. It uses an ABCA structure (Agent-Based Cellular Automaton), divided into three straightforward parts:
+I made this project after reading *Think Complexity*. It is a life observation simulation based on cellular automata and autonomous agents (ABCA).
 
-* **The grid handles physics**: On a 240×160 map, tiles decide where people can walk and what blocks them. Five invisible fields also diffuse across the ground: smell from toilets, aroma from cafeterias, noise from streets, crowd density, and day/night lighting.
-* **The relationship graph handles society**: When two residents get close to each other, they might chat, gossip, or argue based on their personality and mood. Sleeping people do not talk.
-* **The language model handles narration**: The model is not in the main loop; it only writes resident diaries in the background. If no model is configured or if the request times out, built-in templates take over so the simulation keeps running without stuttering.
+The lives of the residents evolve step by step over time. The grid is the ground where residents live and walk around. They socialize, work, sleep, eat, and use the restroom. If they get too stressed, they can fall ill; if all the toilets are occupied and someone can't hold it, things get awkward fast.
+
+Unlike the traditional Game of Life, residents don't just mechanically follow rules to eat when hungry and sleep when tired—they possess memory and soul shaped by a large language model. Every encounter, struggle, and daily experience leaves a lasting imprint on their memory, giving them independent thought within a rule-bound world. As life unfolds, each resident's inner self and life path are genuinely molded into something unique.
 
 ## How to Open It
 
@@ -27,8 +27,8 @@ Install dependencies and start the server:
     pip install -r requirements.txt
     python server.py
 
-* **Game**: [http://127.0.0.1:8000](http://127.0.0.1:8000)Left-click and drag to move the view, mouse wheel to zoom in and out, double-click to fit the whole map. Click the gear icon in the top right to switch between Chinese and English.
-* **Point Editor**: [http://127.0.0.1:8000/static/furniture-editor.html](http://127.0.0.1:8000/static/furniture-editor.html)This editor is used to mark spots on building images. You can mark toilets, beds, desks, and counters. Saving applies immediately to the running simulation without needing a restart.
+* **Game**: [http://127.0.0.1:8000](http://127.0.0.1:8000)Left-click and drag to move the view, mouse wheel to zoom, double-click to fit the whole map. Click the gear icon in the top right to switch between Chinese and English.
+* **Point Editor**: [http://127.0.0.1:8000/static/furniture-editor.html](http://127.0.0.1:8000/static/furniture-editor.html)Use this editor to mark spots on building images. You can mark toilets, beds, desks, and counters. Saving applies immediately to the running simulation without needing a restart.
 * **Run tests**: `python -X utf8 -m pytest -q`
 
 ## How Some Mechanics Work
@@ -59,11 +59,11 @@ Apache-2.0 license. See the [LICENSE](LICENSE) file for details.
 
 ## 本项目基于什么
 
-这个项目是我在读了《思考复杂性》（*Think Complexity*）之后做的。整体采用 ABCA 结构（基于智能体的元胞自动机），分成三块：
+这个项目是我在读了《思考复杂性》（*Think Complexity*）之后做的。
 
-* **格子管物理**：在 240×160 的地图上，格子决定谁能走到哪、谁被墙挡住。地面上还有 5 种场在慢慢扩散：气味（厕所）、香味（食堂）、噪音（马路）、人流拥挤度，以及光照。
-* **关系图管社交**：小镇里两个人走近了会根据各自性格和心情触发搭话，可能闲聊，也可能拌嘴。睡觉的人不说话。
-* **大模型管叙事**：大模型不在主循环里，只在后台负责写写小人的日记。如果没有配置模型或者连不上，程序会直接用内置模板生成，小镇正常运行，不会卡住。
+它是一个基于元胞自动机与多智能体（ABCA）的生活观测游戏。小人的生活会随着每一时间步慢慢演化推进。格子就是地面，是小人们生活和走动的地方。小人可以社交、工作、睡觉、吃饭、上厕所；压力大了也会生病，要是公厕全被占满了、内急憋不住了也会很尴尬。
+
+与传统的生命游戏不同的是，每个小人除了按照规则的设定饿了吃、困了睡，还拥有由大语言模型带来的**记忆塑造与灵魂塑造**。小人们经历的每一次相遇、摩擦与柴米油盐，都会沉淀为他们独有的记忆，让小人在规则遍布的社会里拥有独立的思考。每个小人的生活际遇不同，被生活所塑造出的性格、心境与人生走向，也完全不同。
 
 ## 怎么打开
 
