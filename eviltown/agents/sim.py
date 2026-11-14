@@ -10,6 +10,7 @@ from __future__ import annotations
 import random
 from collections import deque
 
+from .dialogue import DialogueRequest, DialogueSynth
 from ..world.buildings import (Building, BuildingKind, bind_furniture,
                                generate_town, load_points,
                                load_texture_rels)
@@ -172,6 +173,45 @@ _LABEL_EN = {
 
 _ACTION_VALUES = frozenset(t.value for t in ActionType)
 
+
+# ------------------------------------------------------------------ A2A 对白
+# 只给「说得出话」的交互生成对白：友好类的对话型 + 浪漫类的试探型。
+# 冲突类（打架/偷窃）不生成 —— 那些已经有模板文案，且不该由模型替人加戏。
+_A2A_KINDS = frozenset({
+    ix.InteractionKind.GREET, ix.InteractionKind.CHAT,
+    ix.InteractionKind.STORY, ix.InteractionKind.COMFORT,
+    ix.InteractionKind.INVITE, ix.InteractionKind.FLIRT,
+})
+
+
+def _a2a_context(a: Resident, b: Resident, rel) -> str:
+    """把两个人此刻的状态压成一句话，喂给对白模型（**只读**，不改任何状态）。"""
+
+    def one(r: Resident) -> str:
+        mood = float(getattr(r, "mood", 50.0))
+        hunger = float(getattr(r, "hunger", 0.0))
+        return "%d 岁，心情%s，%s" % (
+            int(getattr(r, "age", 0)),
+            "不错" if mood >= 60 else ("一般" if mood >= 35 else "很差"),
+            "肚子有点饿" if hunger >= 60 else "不饿",
+        )
+
+    return "A（%s）：%s；B（%s）：%s。两人亲密度 %d/100、信任 %d。" % (
+        a.name, one(a), b.name, one(b),
+        int(getattr(rel, "intimacy", 0)), int(getattr(rel, "trust", 0)))
+
+
+def _a2a_request(sim, a: Resident, b: Resident, res) -> DialogueRequest:
+    """组装一次对白请求。meta 带上 rid，成品回来时靠它找回这两个人。"""
+    rel = sim.relations.get(a.rid, b.rid)
+    return DialogueRequest(
+        speaker_a=a.name,
+        speaker_b=b.name,
+        context=_a2a_context(a, b, rel),
+        scene=res.kind.value,
+        meta={"tick": sim.clock.tick, "day": sim.clock.day, "a": a.rid, "b": b.rid},
+    )
+
 class Simulation:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -208,6 +248,17 @@ class Simulation:
         self._spawn()
         # 叙事层：日记 + 当天记录导出 md。只在日终跑一次，失败走模板（见 narrative.py）
         self.diary_book = DiaryBook(getattr(cfg, "llm", None))
+        # A2A 对白合成（llm.a2a=true 才建）：居民走到相邻格时让 LLM 写「A 说一句 → B 接一句」。
+        # 关着 → self.a2a is None，_socialize 走原路径，行为与旧版完全一致；
+        # 开着也只是「入队 + 取成品」，HTTP 在守护线程里，永不阻塞 tick（见 agents/dialogue.py）。
+        _llm = getattr(cfg, "llm", None)
+        self.a2a = (DialogueSynth(
+            _llm,
+            max_queue=getattr(_llm, "a2a_max_queue", 16),
+            min_interval=getattr(_llm, "a2a_min_interval", 6.0),
+            max_per_day=getattr(_llm, "a2a_max_per_day", 120),
+            max_tokens=getattr(_llm, "a2a_max_tokens", 200),
+        ) if _llm is not None and getattr(_llm, "a2a", False) else None)
         # CA 场层：与网格同尺寸，每 tick 演化；与智能体解耦，只被「读」
         stride = getattr(cfg.world, "field_stride", 1)
         self.fields = FieldGrid(self.grid.w, self.grid.h, stride=stride)
@@ -1181,6 +1232,7 @@ class Simulation:
         day = self.clock.day
         tick = self.clock.tick
         rs = self.residents
+        self._drain_a2a()
         n = len(rs)
         for i in range(n):
             a = rs[i]
@@ -1235,7 +1287,34 @@ class Simulation:
                 a.last_talk_tick = tick
                 b.last_talk_tick = tick
                 self._emit(a, b, res)
+                # A2A：把这对人丢给后台线程写对白，绝不在这里等 HTTP。
+                # 成品由下一轮 _drain_a2a() 取回；未启用 / 解析失败时什么都不发生。
+                if self.a2a is not None and res.kind in _A2A_KINDS:
+                    self.a2a.submit(_a2a_request(self, a, b, res))
                 break   # 一人一 tick 只搭一次话
+
+    def _drain_a2a(self) -> None:
+        """取走后台线程已写好的对白，落进居民日志（主线程写，非阻塞）。
+
+        - `self.a2a is None`（llm.a2a 关闭）→ 直接返回，这条路径连 deque 都不碰；
+        - 没有成品 → 一次空检查，开销可忽略；
+        - 有成品 → 每段一句「A：… B：…」进日志页。**不写 events**：事件流是前端
+          按 kind 渲染的封闭协议，A2A 只在日志页呈现，免得前端出现未知 kind。
+        """
+        if self.a2a is None:
+            return
+        for line in self.a2a.poll():
+            meta = line.meta or {}
+            rid = meta.get("a")
+            if not isinstance(rid, int) or not (0 <= rid < len(self.residents)):
+                continue
+            r = self.residents[rid]
+            if not r.alive:
+                continue
+            text = line.render()
+            # kind 用已存在的 "socialize"（前端有图标/文案）；force=True 绕过同类冷却 ——
+            # 刷屏风险已经由 dialogue.py 的最小间隔与每日上限挡掉了。
+            self._log(r, "socialize", text, force=True, text_en=text)
 
     def _log(self, r: Resident, kind: str, text: str,
              cooldown: int = 90, force: bool = False, text_en: str = "") -> None:

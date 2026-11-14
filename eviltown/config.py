@@ -45,6 +45,13 @@ class LLMCfg:
     diary: bool = True        # 每天收尾为居民写一段日记
     chat: bool = False        # 聊天/说话交给 LLM 的总开关（默认关）
     chat_residents: int = 1   # 自动挑几个人开聊天；0 = 一个都不开
+    # --- A2A 双回合对白：两居民相邻时让 LLM 写「A 说一句 → B 接一句」 ---
+    # 默认关：关着时 sim 根本不建合成器，行为与旧版一致。
+    a2a: bool = False
+    a2a_min_interval: float = 6.0   # 两次生成的最小间隔（秒），防本地模型被压垮
+    a2a_max_per_day: int = 120      # 每日生成上限；0 = 不限
+    a2a_max_queue: int = 16         # 待生成队列上限，满了丢新请求（不排队、不阻塞 tick）
+    a2a_max_tokens: int = 200       # 单次生成 token 上限（两句短话够用）
 
 
 @dataclass
