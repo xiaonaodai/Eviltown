@@ -48,6 +48,22 @@ class LLMCfg:
 
 
 @dataclass
+class RagCfg:
+    """长期记忆召回（RAG）：把小镇历史写成可检索的句子，决策/日记前召回。
+
+    红线：**全部可关**。enabled=False 时不写库、不召回，主循环行为与加这个
+    功能之前一致（回归测试盯着这条）。
+    """
+    enabled: bool = True
+    recall_k: int = 2          # 每次决策最多召回几条
+    weight: float = 6.0        # 召回给候选行为加的最大软权重（分）：只调权重，不删候选
+    embed: bool = False        # 调 /v1/embeddings 存向量；默认关（没网也能跑关键词）
+    embed_model: str = ""      # 空 = 沿用 llm.model
+    half_life_days: float = 7.0  # 时间衰减半衰期：一周前的记忆权重减半
+    diary: bool = True         # 日记 prompt 里带 1~2 条「你还记得…」
+
+
+@dataclass
 class StorageCfg:
     db_path: str = "data/eviltown.db"
     reports_dir: str = "data/reports"
@@ -71,12 +87,36 @@ class FurnitureCfg:
 
 
 @dataclass
+class ReflectCfg:
+    """日记复盘（reflection）→ 软偏好微调：日终把当天日记再喂一次 LLM，
+    压成几条「明天更想/更不想干什么」的软偏好，叠加到决策打分上。
+
+    红线：**默认关**。enabled=False 时不发请求、不写库、不动 journal_bias，
+    主循环行为与加这个功能之前一致（回归测试盯着这条）。
+    """
+    enabled: bool = False
+    max_items: int = 2          # 每天最多生效几条偏好
+    bonus_cap: float = 6.0      # 单条 / 同类累计的封顶（分）：只调权重，不删候选
+    # --- 层 2：性格微调（会**真的**改 OCEAN 六维）---
+    # 为什么默认关：层 1 只改「明天更想干什么」的软权重，关掉即无痕；这一层改的是
+    # 性格本身，会影响这个人之后**所有**决策。而模型从一篇日记里读出的「性格证据」
+    # 并不牢靠 —— 开着跑一晚，全镇性格会被噪声推着漂移。所以它必须显式 opt-in，
+    # 且只允许小幅（max_delta）、每天向出生基线回弹（regress），任何单日波动都攒不成
+    # 另一种人。personality=False 时与层 1 完全一致：零额外请求、不碰 ocean。
+    personality: bool = False
+    max_delta: float = 0.03     # 单次单项最大改变（0.03 ≈ 量纲的 3%）
+    regress: float = 0.05       # 每天先向出生基线回弹的比例（0=不回弹，1=立刻归位）
+
+
+@dataclass
 class Config:
     world: WorldCfg = field(default_factory=WorldCfg)
     population: int = 50
     time: TimeCfg = field(default_factory=TimeCfg)
     llm: LLMCfg = field(default_factory=LLMCfg)
     storage: StorageCfg = field(default_factory=StorageCfg)
+    rag: RagCfg = field(default_factory=RagCfg)
+    reflect: ReflectCfg = field(default_factory=ReflectCfg)
     server: ServerCfg = field(default_factory=ServerCfg)
     furniture: FurnitureCfg = field(default_factory=FurnitureCfg)
 
@@ -123,6 +163,7 @@ def load_config(path: str | Path | None = None) -> Config:
         time=_build(TimeCfg, raw.get("time")),
         llm=_build(LLMCfg, raw.get("llm")),
         storage=_build(StorageCfg, raw.get("storage")),
+        reflect=_build(ReflectCfg, raw.get("reflect")),
         server=_build(ServerCfg, raw.get("server")),
         furniture=_build(FurnitureCfg, raw.get("furniture")),
     )

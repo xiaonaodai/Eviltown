@@ -19,6 +19,7 @@ from ..world.grid import Grid
 from ..world.pathfind import a_star
 from . import interactions as ix
 from .brain import Action, ActionType, decide, _WAGE_BY_KIND  # 工资表单一真相
+from .memory_rag import TownHistory, query_from_state
 from .relations import RelationGraph
 from .resident import Job, Ocean, Resident, Sex, make_name, make_name_en
 from .wish import attach_wishes
@@ -28,6 +29,14 @@ from ..storage import repo as storage_repo
 
 # 每 tick（=1 仿真分钟）需求变化率
 DECAY = {"hunger": 0.09, "bladder": 0.13, "energy": 0.06, "social": 0.03}
+
+# 长期记忆（RAG）只收「去了哪、干了什么」这类值得记住的摘要，不收每 tick 流水：
+# 收得越细，检索越像噪声；小镇的历史应该是「谁在哪做了什么」，不是移动日志。
+_RAG_KINDS = {
+    ActionType.EAT.value, ActionType.WORK.value, ActionType.SCHOOL.value,
+    ActionType.BAR.value, ActionType.FISH.value, ActionType.BUY.value,
+    ActionType.SHOP.value, ActionType.SOCIALIZE.value,
+}
 
 # —— 压力模型（NEEDS_MODEL.md §2 / §5）——
 # 用户口径：压力**不随时间自然产生**，只由上班/上学累积；睡觉与各种放松行为消解它。
@@ -218,6 +227,9 @@ class Simulation:
         self._event_cursor = 0
         self._con = storage_db.connect(st.db_path) if (
             st and getattr(st, "db_path", None)) else None
+        # 长期记忆（RAG）：默认关闭。关闭时 TownHistory 全链路静默 ——
+        # 不建表、不写库、recall 直接给 None，行为与没有这个功能时完全一致。
+        self.history = TownHistory(cfg=getattr(cfg, "rag", None), con=self._con)
         # 统计日报：内存留最近 60 天（接口直接查这里，不必读库），
         # 每 tick 采样、到 06:00 封盘落库（见 _sample_report / _seal_report）
         self.reports: dict[int, dict] = {}
@@ -225,6 +237,30 @@ class Simulation:
 
     # ------------------------------------------------------------------ 场层
     # ------------------------------------------------------------------ 点位
+    # ------------------------------------------------------------ 长期记忆
+    def _recall(self, r: Resident, hour: float) -> list[dict] | None:
+        """决策前的记忆召回（RAG）。关闭时返回 None，零开销。"""
+        if not self.history.enabled:
+            return None
+        try:
+            q = query_from_state(action=r.action, hour=hour,
+                                 place=self._bname(r.target_id) or "")
+            return self.history.recall(q, now_day=self.clock.day, r=r)
+        except Exception:  # noqa: BLE001  记忆坏了不能拖死主循环
+            return None
+
+    def _remember(self, r: Resident, act: Action) -> None:
+        """把「值得记住」的一次行为压成一句话写进 memory_events。"""
+        if not self.history.enabled or act.kind.value not in _RAG_KINDS:
+            return
+        place = self._bname(act.target.bid) if act.target is not None else ""
+        self.history.add(day=self.clock.day, tick=self.clock.tick,
+                         kind=act.kind.value,
+                         text=f"{r.name}去{place or '街上'}（{act.reason}）",
+                         actor=r.rid,
+                         target=act.target.bid if act.target is not None else None,
+                         place=place or None)
+
     def reload_furniture(self, points: dict[str, list[dict]] | None = None) -> dict:
         """热应用建筑点位：只重绑家具，**不重建仿真**。
 
@@ -674,7 +710,8 @@ class Simulation:
                                  at_school=self._at_school(r),
                                  taken=taken,
                                  crowd_hot=crowd_hot,
-                                 ambient_light=ambient_light)
+                                 ambient_light=ambient_light,
+                                 recall=self._recall(r, hour))
                     # 本 tick 已认领的工位立刻记入占用：否则同 tick 两个人
                     # 都看到「空位」、都应聘同一格（实测还会剩 2 对重复）。
                     if r.work_id is not None and r.job_tile is not None:
@@ -685,6 +722,10 @@ class Simulation:
                     # 无条件重设 → 每 tick「决策→清空路径→再走一段」，
                     # 人永远停在路上（这也是夜间一直动作的放大器）。
                     same_kind = act.kind.value == r.action
+
+                    # 长期记忆（RAG）：行为类型变了才记一句，避免每 tick 刷流水。
+                    if not same_kind:
+                        self._remember(r, act)
                     # 正在办的事还没办完：人已站到目标点、dwell 刚开始累加，
                     # 而当前动作是「须停留才结算」的那几种 → 不许被新决策改写目的地。
                     # 否则到达那一 tick 就被别的效用拉走（buy：选中 722 次 / 成交 0 次）。
@@ -721,7 +762,8 @@ class Simulation:
                                                        at_school=self._at_school(r),
                                                        taken=taken,
                                                        crowd_hot=crowd_hot,
-                                                       ambient_light=ambient_light))
+                                                       ambient_light=ambient_light,
+                                                       recall=self._recall(r, hour)))
                 # 睡眠者已到家时静默卧床：交互会改写 action 字符串（「聊天」「打架」），
                 # 此处按「人在自宅内」把睡眠态纠正回来，别让其被反复吵醒。
                 if r.sleeping and night and self._at_home(r) \

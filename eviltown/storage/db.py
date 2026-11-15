@@ -43,6 +43,22 @@ CREATE TABLE IF NOT EXISTS daily_stats (
     day INTEGER PRIMARY KEY,
     data TEXT NOT NULL
 );
+
+-- 长期记忆（RAG 检索源）：一条事件一行，text 是「能被检索到」的那句话。
+-- embedding 是可选的 float32 小端字节串：没有 embedding 时走关键词检索，
+-- 有则走余弦（见 storage/vector_store.py 的三级降级）。
+-- 单独建表而不是复用 events：events 是逐 tick 的原始流水（量大且多为噪声），
+-- 这里只收「值得记住」的摘要，且带 place/weight 供召回排序。
+CREATE TABLE IF NOT EXISTS memory_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day INTEGER, tick INTEGER,
+    kind TEXT, text TEXT NOT NULL,
+    actor INTEGER, target INTEGER,
+    place TEXT, weight REAL DEFAULT 1.0,
+    embedding BLOB
+);
+CREATE INDEX IF NOT EXISTS idx_memory_day ON memory_events(day);
+CREATE INDEX IF NOT EXISTS idx_memory_actor ON memory_events(actor);
 """
 
 

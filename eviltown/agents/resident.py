@@ -148,6 +148,21 @@ class Resident:
     # 出生时先给模板（source=template），LLM 可用则后台线程逐批换成模型写的（source=llm）。
     # 只有 kind 参与规则层打分，text 纯叙事（红线：LLM 不进主循环）。
     wish: "Wish | None" = None
+    # --- 日记复盘（reflection）→ 软偏好（见 agents/narrative.py）---
+    # 每项 {"kind": <ActionType.value>, "bonus": float, "day": int, "note": str}。
+    # 只给 brain 的打分**加一点软权重**：不删候选、不改阈值，同类累计封顶
+    # bonus_cap，且排在规则裁决之后（饿晕 / 在岗不摸鱼照样优先）。
+    # 默认空 = 行为不变；跨天只保留最近 2 天，避免偏好越攒越重。
+    journal_bias: list[dict] = field(default_factory=list)
+    # 复盘时效权重上限：由 narrative 写入（= ReflectCfg.bonus_cap），brain 取它做
+    # 「同类累计」的最后一道闸。默认 6.0 与 ReflectCfg 一致，所以没跑过复盘的人
+    # 行为与没有这个功能时完全相同。
+    journal_cap: float = 6.0
+    # --- 反思层 2：性格基线（见 agents/narrative.py 的 _apply_traits）---
+    # 出生时 Ocean 的深拷贝，**默认 None = 尚未快照**（第一次做性格复盘时才补）。
+    # 用途：每天先把当前值朝这个基线回弹一点（regress），再叠加当天小幅改变（max_delta）。
+    # 没有它，一句「今天很上心」会永久改写一个人；有了它，性格只在基线附近起伏。
+    ocean_base: "Ocean | None" = None
 
     # 英文名（只取名、不带姓）：切英文时全站（地图标签 / 日志 / 详情 / 下拉 / 事件流）
     # 都用它；空串时退回拼音。中文名 name 仍是唯一真相，存档与落库都只用中文名。
