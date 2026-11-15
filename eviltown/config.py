@@ -97,6 +97,15 @@ class ReflectCfg:
     enabled: bool = False
     max_items: int = 2          # 每天最多生效几条偏好
     bonus_cap: float = 6.0      # 单条 / 同类累计的封顶（分）：只调权重，不删候选
+    # --- 层 2：性格微调（会**真的**改 OCEAN 六维）---
+    # 为什么默认关：层 1 只改「明天更想干什么」的软权重，关掉即无痕；这一层改的是
+    # 性格本身，会影响这个人之后**所有**决策。而模型从一篇日记里读出的「性格证据」
+    # 并不牢靠 —— 开着跑一晚，全镇性格会被噪声推着漂移。所以它必须显式 opt-in，
+    # 且只允许小幅（max_delta）、每天向出生基线回弹（regress），任何单日波动都攒不成
+    # 另一种人。personality=False 时与层 1 完全一致：零额外请求、不碰 ocean。
+    personality: bool = False
+    max_delta: float = 0.03     # 单次单项最大改变（0.03 ≈ 量纲的 3%）
+    regress: float = 0.05       # 每天先向出生基线回弹的比例（0=不回弹，1=立刻归位）
 
 
 @dataclass

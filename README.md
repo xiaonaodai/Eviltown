@@ -41,7 +41,7 @@ Install dependencies and start the server:
 * **Minors**: Residents under 18 will not visit the bar; the bar is automatically removed when picking destinations.
 * **Snoring**: Sensitive residents sleeping in the same room with a snoring housemate recover energy much slower at night.
 * **Long-term memory (RAG)**: Residents remember where they have been and what they did ("Alice went to the bar"). Before each decision and every nightly diary, a lightweight retrieval layer recalls the most relevant memories and nudges the matching action — **a soft bonus only, never a hard override**. Rules still win: someone starving will eat before shopping, no matter what they remember. Retrieval degrades gracefully (sqlite-vec → pure-Python cosine → keyword), so it works with no embedding service at all. Off by default (`rag.enabled: false`).
-* **Diary reflection**: After each nightly diary, an optional extra LLM pass reads the day back and yields at most `reflect.max_items` soft preferences ("spent too much at the bar lately — ease off"). They are plain bonuses on the matching action, **clamped** to ±`reflect.bonus_cap` and **never remove candidates or beat hard rules** — a starving resident still eats first. Malformed model output is discarded as a whole batch, a failed pass leaves existing preferences untouched, and at most two days of preferences are kept. Off by default (`reflect.enabled: false`).
+* **Diary reflection**: After each nightly diary, an optional extra LLM pass reads the day back and yields at most `reflect.max_items` soft preferences ("spent too much at the bar lately — ease off"). They are plain bonuses on the matching action, **clamped** to ±`reflect.bonus_cap` and **never remove candidates or beat hard rules** — a starving resident still eats first. Malformed model output is discarded as a whole batch, a failed pass leaves existing preferences untouched, and at most two days of preferences are kept. Off by default (`reflect.enabled: false`). Turning on `reflect.personality` lets the same pass nudge the resident's **real** OCEAN traits: whitelisted six dimensions only, at most ±`reflect.max_delta` per day, clamped to [0,1], and regressed toward the birth baseline by `reflect.regress` each day — so personality stays a slow variable instead of drifting without bound.
 
 ## License
 
@@ -88,7 +88,7 @@ Apache-2.0 license. See the [LICENSE](LICENSE) file for details.
 * **未成年人**：不满 18 岁的人不会去酒吧，选目的地时会自动过滤掉。
 * **打呼噜**：性格敏感的人如果遇到室友打呼噜，晚上的睡眠质量会变差。
 * **长期记忆（RAG）**：小人会记住自己去过哪、干了什么（「Alice 去酒吧喝了一杯」）。每次决策前和每晚写日记时，一层轻量检索会召回最相关的几条记忆，给对应行为加一点偏好分——**只加软权重，绝不覆盖规则**。规则永远优先：快饿晕的人照样先去吃饭，不管记忆里多爱逛街。检索三级降级（sqlite-vec → 纯 Python 余弦 → 关键词），没有 embedding 服务也能用。默认关闭（`rag.enabled: false`）。
-* **日记复盘（reflection）**：每晚日记写完，可选地多跑一次 LLM，把这一天回看一遍，最多提炼出 `reflect.max_items` 条软偏好（「最近在酒吧花太凶了，收敛点」）。它们只是给对应行为加的一点分，**被 clamp 在 ±`reflect.bonus_cap` 之内，不删候选、也顶不翻硬规则**——快饿晕的人照样先吃饭。模型输出不合规就整批丢弃，丢弃时原有偏好保持不变，最多保留最近 2 天的偏好。默认关闭（`reflect.enabled: false`）。
+* **日记复盘（reflection）**：每晚日记写完，可选地多跑一次 LLM，把这一天回看一遍，最多提炼出 `reflect.max_items` 条软偏好（「最近在酒吧花太凶了，收敛点」）。它们只是给对应行为加的一点分，**被 clamp 在 ±`reflect.bonus_cap` 之内，不删候选、也顶不翻硬规则**——快饿晕的人照样先吃饭。模型输出不合规就整批丢弃，丢弃时原有偏好保持不变，最多保留最近 2 天的偏好。默认关闭（`reflect.enabled: false`）。再打开 `reflect.personality`，同一次复盘还能小幅改到**真实的 OCEAN 六维**：只认白名单六个维度、每天每项最多 ±`reflect.max_delta`、结果夹在 [0,1]，且每天先按 `reflect.regress` 朝出生基线回弹——让性格是慢变量，而不是一路漂移。
 
 ## 许可
 

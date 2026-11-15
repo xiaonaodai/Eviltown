@@ -49,6 +49,153 @@ def _reflect_kinds() -> list[str]:
     return [k.value for k in ActionType]
 
 
+# ---------------------------------------- 反思层 2：性格微调（traits，默认关）
+# 层 1 只改「明天更想干什么」的软权重；这一层动的是 OCEAN 六维**本身**，所以规矩更严：
+# 白名单六键、单项小幅、结果夹在 [0,1]、每天先向出生基线回弹，且**复用层 1 的那一次
+# chat**（不许新增 LLM 调用）。
+TRAIT_KEYS = ("openness", "conscientiousness", "extraversion",
+              "agreeableness", "neuroticism", "greed")
+
+_TRAIT_PROMPT_ZH = (
+    "\n另外：如果今天的事让你在性格上有了一点变化，就在**同一个** JSON 对象里加一份 "
+    'traits，形如 {"biases":[], "traits":{"conscientiousness":0.02}}。\n'
+    "traits 的键只能取 openness / conscientiousness / extraversion / agreeableness / "
+    "neuroticism / greed，值是 -{d:g}~{d:g} 之间的小数（正=更强，负=更弱），最多 2 个键；"
+    '没有想改的就给空对象 {{"traits":{{}}}}。')
+_TRAIT_PROMPT_EN = (
+    "\nAlso: if today shifted your personality a little, add traits to the **same** "
+    'JSON object, e.g. {"biases":[], "traits":{"conscientiousness":0.02}}.\n'
+    "Traits keys may only be openness / conscientiousness / extraversion / "
+    "agreeableness / neuroticism / greed; values are small numbers in [-{d:g}, {d:g}] "
+    "(positive = stronger, negative = weaker), at most 2 keys; if nothing changed "
+    'output {"traits":{}}.')
+
+
+def _parse_reflect_json(txt, quiet: bool = False) -> dict | None:
+    """把模型回复里那段 JSON 对象抠出来：biases 与 traits **共用这一次解析**。
+
+    返回 None = 这段回复整体不可用（没有对象 / 不是合法 JSON / 顶层不是对象）。
+    粒度由调用方决定：traits 坏了不影响 biases，反过来也一样。
+    """
+    if not txt:
+        return None
+    raw = str(txt).strip()
+    a, b = raw.find("{"), raw.rfind("}")
+    if a < 0 or b <= a:
+        if not quiet:
+            _warn("reflect: 回复里没有 JSON 对象，整批丢弃：%.80s", raw)
+        return None
+    import json
+    try:
+        obj = json.loads(raw[a:b + 1])
+    except Exception:  # noqa: BLE001
+        if not quiet:
+            _warn("reflect: JSON 解析失败，整批丢弃：%.80s", raw)
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _num(v) -> float | None:
+    """把字段值转成有限 float；不是数字就返回 None（脏数据只跳过，绝不抛）。"""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")):
+        return None
+    return f
+
+
+def normalize_traits(raw, max_delta: float) -> dict[str, dict]:
+    """把 traits 校验成 `{维度: {"delta": float, "note": str}}`。
+
+    与 normalize_biases 的严格程度**故意不同**：
+    * 白名单外的键 **逐条丢弃**（多一个乱键不构成整批不可信）；
+    * 超幅 **clamp** 到 ±max_delta 而不是丢弃（「方向对、力度大」最常见）；
+    * 只有 traits 整体不是对象时才整批丢 —— 那种回复对任何一维都没有信息量。
+    `raw` 可以是已解析的 dict（含 "traits" 键，或本身就是 traits 映射），也可以是原文。
+    带 note 是为了让 memory_events 那句「性格：conscientiousness +0.020（…）」可追溯。
+    """
+    obj = raw
+    if isinstance(obj, str):
+        obj = _parse_reflect_json(obj) or {}
+    if obj is None:
+        return {}
+    if not isinstance(obj, dict):
+        _warn("reflect: traits 不是对象（%s），整批丢弃", type(obj).__name__)
+        return {}
+    items = obj["traits"] if "traits" in obj else obj
+    if items is None:
+        return {}
+    if not isinstance(items, dict):
+        _warn("reflect: traits 类型不对（%s），整批丢弃", type(items).__name__)
+        return {}
+    cap = abs(_num(max_delta) or 0.0)
+    out: dict[str, dict] = {}
+    for k, v in items.items():
+        key = str(k).strip()
+        if key not in TRAIT_KEYS:
+            _warn("reflect: 未知性格维度 %r 不在白名单，丢弃", key)
+            continue
+        note = ""
+        if isinstance(v, dict):                      # {"delta":0.02,"reason":"…"} 也认
+            note = str(v.get("reason") or v.get("note") or "").strip()[:40]
+            v = v.get("delta", v.get("value"))
+        d = _num(v)
+        if d is None:
+            _warn("reflect: %s 的 delta 不是数字（%r），丢弃该维", key, v)
+            continue
+        d = max(-cap, min(cap, d))                   # 超幅 clamp，不丢
+        if not d:
+            continue                                 # 0 等于没变
+        out[key] = {"delta": round(d, 4), "note": note}
+    return out
+
+
+def _apply_traits(sim, day: int, r, traits: dict,
+                  max_delta: float, regress: float) -> list[tuple[str, float, str]]:
+    """把当天的小幅性格改变落到 `r.ocean`，返回实际改动 `[(维度, delta, 理由)]`。
+
+        v = base + (v - base) * (1 - regress)    # ① 先向出生基线回弹
+        v = clamp(v + delta, 0, 1)               # ② 再叠加当天改变并夹回量纲
+
+    为什么**每天**都回弹（哪怕今天没有信号）：只累加的话，跑几天性格就漂到极端；
+    回弹让它成为「慢变量」—— 在出生基线附近起伏，而不是被某一天的事改写一辈子。
+    * `ocean_base is None` ⇒ 第一次应用，深拷贝当前 ocean 当基线；
+    * 居民没有 ocean（测试假对象 / 老数据）⇒ 什么都不做：宁可不改，也不造假性格。
+    （sim / day 保留在签名里：与层 1 的调用形态对齐，将来要用它落日志也方便。）
+    """
+    ocean = getattr(r, "ocean", None)
+    if ocean is None:
+        return []
+    import copy
+    base = getattr(r, "ocean_base", None)
+    if base is None:
+        base = copy.deepcopy(ocean)
+        try:
+            r.ocean_base = base
+        except Exception:  # noqa: BLE001
+            return []
+    reg = min(1.0, max(0.0, _num(regress) or 0.0))
+    cap = abs(_num(max_delta) or 0.0)
+    out: list[tuple[str, float, str]] = []
+    for k in TRAIT_KEYS:                     # 固定顺序：事件文本稳定、便于 diff
+        ent = (traits or {}).get(k) or {}
+        d = max(-cap, min(cap, _num(ent.get("delta")) or 0.0))
+        cur = _num(getattr(ocean, k, None))
+        if cur is None:
+            continue
+        b = _num(getattr(base, k, None))
+        if b is None:
+            b = cur
+        v = b + (cur - b) * (1.0 - reg)       # ① 回弹到出生基线
+        v = min(1.0, max(0.0, v + d))         # ② 叠加当天改变 + 区间 clamp
+        setattr(ocean, k, round(v, 4))
+        if d:
+            out.append((k, d, str(ent.get("note") or "")))
+    return out
+
+
 def normalize_biases(txt: str, cap: float, max_items: int, day: int) -> list[dict]:
     """把模型的复盘回复校验成 journal_bias。**严格：任一条不合法 ⇒ 整批丢弃**。
 
@@ -57,20 +204,12 @@ def normalize_biases(txt: str, cap: float, max_items: int, day: int) -> list[dic
     """
     if not txt or max_items <= 0:
         return []
-    raw = str(txt).strip()
-    a, b = raw.find("{"), raw.rfind("}")
-    if a < 0 or b <= a:
-        _warn("reflect: 回复里没有 JSON 对象，整批丢弃：%.80s", raw)
+    obj = _parse_reflect_json(txt)
+    if obj is None:
         return []
-    import json
-    try:
-        obj = json.loads(raw[a:b + 1])
-    except Exception:  # noqa: BLE001
-        _warn("reflect: JSON 解析失败，整批丢弃：%.80s", raw)
-        return []
-    items = obj.get("biases") if isinstance(obj, dict) else None
+    items = obj.get("biases")
     if not isinstance(items, list):
-        _warn("reflect: 缺少 biases 数组，整批丢弃：%.80s", raw)
+        _warn("reflect: 缺少 biases 数组，整批丢弃：%.80s", str(txt).strip())
         return []
     kinds = _reflect_kinds()
     try:
@@ -184,20 +323,64 @@ def _reflect_all(sim, snapshot: list[tuple], day: int, client, lang: str, cfg) -
         except Exception:  # noqa: BLE001
             continue
         got = normalize_biases(txt, cap, max_items, day)
-        if not got:
-            continue                        # 整批丢弃 ⇒ 保持原偏好不变
-        keep: list[dict] = []
-        for e in (getattr(r, "journal_bias", None) or []):
-            if not isinstance(e, dict):
-                continue
-            try:
-                if int(e.get("day", -99)) >= int(day) - 1:
-                    keep.append(e)
-            except (TypeError, ValueError):
-                continue
-        r.journal_bias = keep + got          # list 赋值原子，只留最近 2 天
-        r.journal_cap = cap                  # 让 brain 的封顶跟配置联动
-        _write_reflect_event(sim, day, r, got)
+        if got:                             # 整批丢弃 ⇒ 保持原偏好不变
+            keep: list[dict] = []
+            for e in (getattr(r, "journal_bias", None) or []):
+                if not isinstance(e, dict):
+                    continue
+                try:
+                    if int(e.get("day", -99)) >= int(day) - 1:
+                        keep.append(e)
+                except (TypeError, ValueError):
+                    continue
+            r.journal_bias = keep + got      # list 赋值原子，只留最近 2 天
+            r.journal_cap = cap              # 让 brain 的封顶跟配置联动
+            _write_reflect_event(sim, day, r, got)
+        # --- 反思层 2：性格微调（同一份回复、同一次 chat，绝不额外发请求）---
+        # 顺序很关键：层 1 已经落地，traits 坏了只丢 traits，不回头影响偏好。
+        if not bool(getattr(cfg, "personality", False)):
+            continue
+        try:
+            max_delta = abs(float(getattr(cfg, "max_delta", 0.03) or 0.0))
+            regress = float(getattr(cfg, "regress", 0.05) or 0.0)
+        except (TypeError, ValueError):
+            max_delta, regress = 0.03, 0.05
+        obj = _parse_reflect_json(txt, quiet=True)
+        raw_traits = obj.get("traits") if isinstance(obj, dict) else None
+        traits = normalize_traits(raw_traits if raw_traits is not None else {}, max_delta)
+        # 即使今天没有信号也要走一遍：性格每天都要向出生基线回弹一点。
+        applied = _apply_traits(sim, day, r, traits, max_delta, regress)
+        if applied:
+            _write_trait_event(sim, day, r, applied)
+
+
+def _write_trait_event(sim, day: int, r, applied: list[tuple[str, float, str]]) -> None:
+    """性格改变落一条 memory_events（kind=reflect_trait）：明天召回时才「记得」自己变了。"""
+    if not applied:
+        return
+    st = getattr(getattr(sim, "cfg", None), "storage", None)
+    if st is None or not getattr(st, "record_events", True):
+        return
+    text = "性格：" + "；".join(
+        f"{k} {d:+.3f}" + (f"（{n}）" if n else "") for k, d, n in applied)
+    tick = int(getattr(sim, "tick", 0) or 0)
+    try:
+        from ..storage import db as db_mod
+        rel = getattr(st, "db_path", "data/eviltown.db")
+        path = Path(rel) if Path(rel).is_absolute() else _ROOT / rel
+        con = db_mod.connect(path)
+        try:
+            con.execute(
+                "INSERT INTO memory_events (day, tick, kind, text, actor, target, place, weight)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (int(day), tick, "reflect_trait", text[:400],
+                 int(getattr(r, "rid", 0) or 0), None, None, 1.0),
+            )
+            con.commit()
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001
+        _warn("reflect: 写 memory_events(kind=reflect_trait) 失败（不影响决策与日记）")
 
 
 def _day_items(sim, rid: int, day: int, limit: int = 14) -> list[str]:
