@@ -87,6 +87,19 @@ class FurnitureCfg:
 
 
 @dataclass
+class ReflectCfg:
+    """日记复盘（reflection）→ 软偏好微调：日终把当天日记再喂一次 LLM，
+    压成几条「明天更想/更不想干什么」的软偏好，叠加到决策打分上。
+
+    红线：**默认关**。enabled=False 时不发请求、不写库、不动 journal_bias，
+    主循环行为与加这个功能之前一致（回归测试盯着这条）。
+    """
+    enabled: bool = False
+    max_items: int = 2          # 每天最多生效几条偏好
+    bonus_cap: float = 6.0      # 单条 / 同类累计的封顶（分）：只调权重，不删候选
+
+
+@dataclass
 class Config:
     world: WorldCfg = field(default_factory=WorldCfg)
     population: int = 50
@@ -94,6 +107,7 @@ class Config:
     llm: LLMCfg = field(default_factory=LLMCfg)
     storage: StorageCfg = field(default_factory=StorageCfg)
     rag: RagCfg = field(default_factory=RagCfg)
+    reflect: ReflectCfg = field(default_factory=ReflectCfg)
     server: ServerCfg = field(default_factory=ServerCfg)
     furniture: FurnitureCfg = field(default_factory=FurnitureCfg)
 
@@ -140,6 +154,7 @@ def load_config(path: str | Path | None = None) -> Config:
         time=_build(TimeCfg, raw.get("time")),
         llm=_build(LLMCfg, raw.get("llm")),
         storage=_build(StorageCfg, raw.get("storage")),
+        reflect=_build(ReflectCfg, raw.get("reflect")),
         server=_build(ServerCfg, raw.get("server")),
         furniture=_build(FurnitureCfg, raw.get("furniture")),
     )

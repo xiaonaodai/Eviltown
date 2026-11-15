@@ -27,6 +27,179 @@ WISH_EN = {
 }
 
 
+# ==================================================== 日记复盘（reflection）→ 软偏好
+# 一天一次、只发生在 on_day_end 的 daemon 线程里（红线：LLM 不进主循环）。
+# 关闭（ReflectCfg.enabled=False）时 _reflect_all 立刻返回：不发请求、不写库、
+# 不动居民状态 —— 行为与没有这个功能时逐位一致。
+_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _warn(msg: str, *args) -> None:
+    """复盘的告警日志。本模块历来不打日志，这里延迟 import 免得改动顶层依赖。"""
+    import logging
+    logging.getLogger(__name__).warning(msg, *args)
+
+
+def _reflect_kinds() -> list[str]:
+    """ActionType 白名单。延迟 import：narrative 在 sim 早期就被导入，避免环依赖。"""
+    try:
+        from .brain import ActionType
+    except Exception:  # noqa: BLE001
+        return []
+    return [k.value for k in ActionType]
+
+
+def normalize_biases(txt: str, cap: float, max_items: int, day: int) -> list[dict]:
+    """把模型的复盘回复校验成 journal_bias。**严格：任一条不合法 ⇒ 整批丢弃**。
+
+    为什么整批丢而不是「能用的先用」：偏好会叠加到决策打分上，半对半错的批次
+    最难排查；宁可这天的复盘不生效（行为等同关闭），也要保证生效的每一条都可解释。
+    """
+    if not txt or max_items <= 0:
+        return []
+    raw = str(txt).strip()
+    a, b = raw.find("{"), raw.rfind("}")
+    if a < 0 or b <= a:
+        _warn("reflect: 回复里没有 JSON 对象，整批丢弃：%.80s", raw)
+        return []
+    import json
+    try:
+        obj = json.loads(raw[a:b + 1])
+    except Exception:  # noqa: BLE001
+        _warn("reflect: JSON 解析失败，整批丢弃：%.80s", raw)
+        return []
+    items = obj.get("biases") if isinstance(obj, dict) else None
+    if not isinstance(items, list):
+        _warn("reflect: 缺少 biases 数组，整批丢弃：%.80s", raw)
+        return []
+    kinds = _reflect_kinds()
+    try:
+        cap = abs(float(cap))
+    except (TypeError, ValueError):
+        cap = 0.0
+    out: list[dict] = []
+    for it in items:
+        if len(out) >= max_items:
+            break
+        if not isinstance(it, dict):
+            _warn("reflect: biases 里有非对象项，整批丢弃")
+            return []
+        kind = str(it.get("kind") or "").strip()
+        try:
+            bonus = float(it.get("bonus"))
+        except (TypeError, ValueError):
+            _warn("reflect: bonus 不是数字（%r），整批丢弃", it.get("bonus"))
+            return []
+        if bonus != bonus or bonus in (float("inf"), float("-inf")):
+            _warn("reflect: bonus 非有限数（%r），整批丢弃", bonus)
+            return []
+        if kind not in kinds:
+            _warn("reflect: 未知 kind=%r 不在 ActionType 白名单，整批丢弃", kind)
+            return []
+        bonus = max(-cap, min(cap, bonus))      # clamp 到 [-cap, cap]
+        if not bonus:
+            continue                            # 0 分等于没说
+        out.append({"kind": kind, "bonus": round(bonus, 3), "day": int(day),
+                    "note": str(it.get("reason") or "").strip()[:60]})
+    return out
+
+
+def _reflect_prompt(r, items: list[str], diary: str, lang: str,
+                    cap: float, max_items: int) -> tuple[str, str]:
+    """复盘 prompt：只许输出 JSON。给人看的语言跟随界面语言。"""
+    kinds = " / ".join(_reflect_kinds())
+    if lang == "en":
+        sys_p = ("You review one villager's day and output JSON only — no prose, "
+                 "no code fence.\n"
+                 'Shape: {"biases":[{"kind":"...","bonus":-3,"reason":"one line"}]}\n'
+                 f"kind must be one of: {kinds}.\n"
+                 f"bonus is a number in [-{cap:g}, {cap:g}]: positive = wants more of it "
+                 f"tomorrow, negative = wants less. At most {max_items} entries; "
+                 'if nothing stands out output {"biases":[]}.')
+        user = f"Person: {(r.name_en or r.name)}\n"
+        if diary:
+            user += f"Diary today:\n{diary}\n"
+        if items:
+            user += "Today's log:\n" + "\n".join(f"- {x}" for x in items)
+        return sys_p, user
+    sys_p = ("你替一位小镇居民做一天结束时的复盘，只输出 JSON：不要解释，不要代码围栏。\n"
+             '格式：{"biases":[{"kind":"...","bonus":-3,"reason":"一句话"}]}\n'
+             f"kind 只能取：{kinds}。\n"
+             f"bonus 取 [-{cap:g}, {cap:g}] 之间的数字：正数=明天更想做，负数=明天更不想做。"
+             f"最多 {max_items} 条；没特别的可说就输出 {{\"biases\":[]}}。")
+    user = f"人物：{r.name}\n"
+    if diary:
+        user += f"今天的日记：\n{diary}\n"
+    if items:
+        user += "今天的记录：\n" + "\n".join(f"- {x}" for x in items)
+    return sys_p, user
+
+
+def _write_reflect_event(sim, day: int, r, biases: list[dict]) -> None:
+    """复盘结果落一条 memory_events（kind=reflect）：明天召回时才「记得」自己复盘过。"""
+    st = getattr(getattr(sim, "cfg", None), "storage", None)
+    if st is None or not getattr(st, "record_events", True):
+        return
+    text = "复盘：" + "；".join(f"{b['kind']}{b['bonus']:+.1f}（{b['note']}）" for b in biases)
+    tick = int(getattr(sim, "tick", 0) or 0)
+    try:
+        from ..storage import db as db_mod
+        rel = getattr(st, "db_path", "data/eviltown.db")
+        path = Path(rel) if Path(rel).is_absolute() else _ROOT / rel
+        con = db_mod.connect(path)
+        try:
+            con.execute(
+                "INSERT INTO memory_events (day, tick, kind, text, actor, target, place, weight)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (int(day), tick, "reflect", text[:400],
+                 int(getattr(r, "rid", 0) or 0), None, None, 1.0),
+            )
+            con.commit()
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001
+        _warn("reflect: 写 memory_events 失败（不影响决策与日记）")
+
+
+def _reflect_all(sim, snapshot: list[tuple], day: int, client, lang: str, cfg) -> None:
+    """日记写完后（同线程）对每人做一次复盘，产出几条软偏好。
+
+    * cfg 缺失 / enabled=False ⇒ 立刻返回（零行为变化）；
+    * 每人的偏好**整体替换**（list 赋值原子），且只保留最近 2 天；
+    * 任何异常都吞掉：复盘失败不能影响日记与主循环。
+    """
+    if cfg is None or not bool(getattr(cfg, "enabled", False)):
+        return
+    try:
+        cap = float(getattr(cfg, "bonus_cap", 6.0) or 0.0)
+        max_items = int(getattr(cfg, "max_items", 2) or 0)
+    except (TypeError, ValueError):
+        return
+    if max_items <= 0:
+        return
+    for r, items, diary in snapshot:
+        try:
+            sys_p, usr_p = _reflect_prompt(r, items, diary, lang, cap, max_items)
+            txt = client.chat(sys_p, usr_p, lang=lang, max_tokens=220, temperature=0.5)
+        except Exception:  # noqa: BLE001
+            continue
+        got = normalize_biases(txt, cap, max_items, day)
+        if not got:
+            continue                        # 整批丢弃 ⇒ 保持原偏好不变
+        keep: list[dict] = []
+        for e in (getattr(r, "journal_bias", None) or []):
+            if not isinstance(e, dict):
+                continue
+            try:
+                if int(e.get("day", -99)) >= int(day) - 1:
+                    keep.append(e)
+            except (TypeError, ValueError):
+                continue
+        r.journal_bias = keep + got          # list 赋值原子，只留最近 2 天
+        r.journal_cap = cap                  # 让 brain 的封顶跟配置联动
+        _write_reflect_event(sim, day, r, got)
+
+
 def _day_items(sim, rid: int, day: int, limit: int = 14) -> list[str]:
     """从 sim.logs 里捞某居民当天的记录（新→旧，取最近的 limit 条再翻正）。"""
     out: list[str] = []

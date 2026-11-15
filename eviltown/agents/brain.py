@@ -586,6 +586,31 @@ def decide(
                 if _b:
                     _a.utility += min(_RECALL_BONUS_CAP, _b)
 
+    # 日记复盘（reflection）→ 软偏好：慢脑一天攒下的几条「明天更想/更不想干什么」。
+    # 与上面的 recall 走**同一条通道**：只加减分、不删候选、不改阈值，且位置同样在
+    # 生理紧急裁决与「在岗不摸鱼」之后 —— 复盘永远顶不翻这两条硬规则。
+    # 关闭该功能时 journal_bias 恒为空 ⇒ 下面整段是 no-op（回归测试盯着这条）。
+    # 同类累计封顶 6.0（默认 ReflectCfg.bonus_cap），正负各自独立。
+    _jb: dict[str, float] = {}
+    for _e in (getattr(r, "journal_bias", None) or ()):
+        if not isinstance(_e, dict):
+            continue
+        _k = str(_e.get("kind") or "").strip()
+        try:
+            _b = float(_e.get("bonus") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if _k and _b:
+            _jb[_k] = _jb.get(_k, 0.0) + _b
+    if _jb:
+        # 封顶取居民身上的 journal_cap（复盘时写入 = ReflectCfg.bonus_cap）；
+        # 没跑过复盘的人退回默认 6.0。正负各自独立 clamp。
+        _jcap = float(getattr(r, "journal_cap", 6.0) or 6.0)
+        for _a in scores:
+            _b = _jb.get(_a.kind.value)
+            if _b:
+                _a.utility += max(-_jcap, min(_jcap, _b))
+
     # 同分随机：并列最高分时随机挑一个，避免「永远选列表中靠前的那个」造成行为固化。
     best_u = max(a.utility for a in scores)
     tied = [a for a in scores if best_u - a.utility < 1e-6]

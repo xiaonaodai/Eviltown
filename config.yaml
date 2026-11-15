@@ -33,6 +33,15 @@ storage:
   reports_dir: "data/reports"
   record_events: true
 
+# 日记复盘（reflection）→ 软偏好微调。**默认关闭**：关着时不发 LLM 请求、
+# 不写库、不碰居民状态，决策路径与没有这个功能时完全一致。
+# 打开后每天日终在日记线程里多跑一次 LLM，把当天日记压成最多 max_items 条
+# 软偏好（只给对应行为加/减一点分，不删候选，顶不翻饿晕、在岗、睡觉等硬规则）。
+reflect:
+  enabled: false       # 打开 = 每天多一次 LLM 调用/人
+  max_items: 2         # 每天最多生效几条偏好
+  bonus_cap: 6.0       # 单条 / 同类累计封顶（分）
+
 server:
   host: "0.0.0.0"     # 监听所有网卡，局域网设备可访问（仅限可信内网，勿映射公网）
   port: 8000
